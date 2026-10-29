@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}{{ recipe.title }}{% endblock %}
+{% block content %}
+<article class="recipe">
+  <h1>{{ recipe.title }}</h1>
+  {% if recipe.main %}
+    <p class="main-ing">Главный ингредиент: <strong>{{ recipe.main.name }}</strong></p>
+  {% endif %}
+
+  <div class="actions">
+    <a class="btn" href="{{ url_for('recipe_docx', recipe_id=recipe.id, main_qty=main_qty|string if main_qty else none) }}">🖨 Скачать DOCX для печати</a>
+    <a class="btn secondary" href="{{ url_for('recipe_edit', recipe_id=recipe.id) }}">Редактировать</a>
+    <form method="post" action="{{ url_for('recipe_delete', recipe_id=recipe.id) }}"
+          data-title="{{ recipe.title }}"
+          onsubmit="return confirm('Удалить рецепт «' + this.dataset.title + '»?')">
+      <button class="btn danger">Удалить</button>
+    </form>
+  </div>
+
+  {% if recipe.main and recipe.main.unit != 'to_taste' %}
+    <form class="scale" method="get">
+      <label for="main_qty">Рассчитать на</label>
+      <input type="text" inputmode="decimal" id="main_qty" name="main_qty" required
+             value="{{ recipe.main|qty_input|replace('.', ',') }}">
+      <span>{{ units[recipe.main.unit] }} «{{ recipe.main.name }}»</span>
+      <button class="btn secondary">Пересчитать</button>
+      {% if main_qty %}<a href="{{ url_for('recipe_view', recipe_id=recipe.id) }}">как в рецепте</a>{% endif %}
+    </form>
+  {% endif %}
+
+  <h2>Ингредиенты{% if main_qty %} <span class="scaled-note">(пересчитано)</span>{% endif %}</h2>
+  <table class="ingredients">
+    {% for ing in recipe.ingredients %}
+      <tr class="{{ 'main' if ing.is_main }}">
+        <td>{{ ing.name }}{% if ing.is_main %} <span class="star" title="Главный ингредиент">★</span>{% endif %}</td>
+        <td class="qty">{{ ing|qty }}</td>
+      </tr>
+    {% endfor %}
+  </table>
+
+  <h2>Приготовление</h2>
+  <ol class="steps">
+    {% for step in recipe.steps %}
+      <li>{{ step.text }}</li>
+    {% endfor %}
+  </ol>
+</article>
+{% endblock %}

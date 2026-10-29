@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<form class="search" method="get">
+  <input type="search" name="q" value="{{ q }}" placeholder="Поиск по названию или главному ингредиенту">
+  <button class="btn secondary">Найти</button>
+</form>
+
+{% if recipes %}
+  <ul class="recipe-list">
+    {% for r in recipes %}
+      <li>
+        <a href="{{ url_for('recipe_view', recipe_id=r.id) }}">{{ r.title }}</a>
+        {% if r.main_ingredient %}<span class="tag">{{ r.main_ingredient }}</span>{% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+{% elif q %}
+  <p class="muted">Ничего не найдено.</p>
+{% else %}
+  <p class="muted">Рецептов пока нет. <a href="{{ url_for('recipe_new') }}">Добавьте первый</a>.</p>
+{% endif %}
+{% endblock %}

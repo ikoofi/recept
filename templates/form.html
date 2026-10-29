@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% from "_form_rows.html" import ingredient_row, step_row with context %}
+{% block title %}{{ 'Новый рецепт' if mode == 'new' else 'Редактирование' }}{% endblock %}
+{% block content %}
+<h1>{{ 'Новый рецепт' if mode == 'new' else 'Редактирование рецепта' }}</h1>
+
+<form method="post" class="recipe-form">
+  <label class="field">
+    <span>Название</span>
+    <input type="text" name="title" required maxlength="255" value="{{ recipe.title if recipe else '' }}">
+  </label>
+
+  <h2>Ингредиенты</h2>
+  <p class="muted">Отметьте ★ главный ингредиент. Для «по вкусу» количество не нужно.</p>
+  <div id="ingredients">
+    {% set ings = recipe.ingredients if recipe else [] %}
+    {% for ing in ings %}
+      {{ ingredient_row(loop.index, ing) }}
+    {% else %}
+      {{ ingredient_row(1, none) }}
+    {% endfor %}
+  </div>
+  <button type="button" class="btn secondary" id="add-ingredient">+ Ингредиент</button>
+
+  <h2>Порядок приготовления</h2>
+  <ol id="steps" class="step-inputs">
+    {% set steps = recipe.steps if recipe else [] %}
+    {% for step in steps %}
+      {{ step_row(step.text) }}
+    {% else %}
+      {{ step_row('') }}
+    {% endfor %}
+  </ol>
+  <button type="button" class="btn secondary" id="add-step">+ Шаг</button>
+
+  <div class="form-actions">
+    <button class="btn">Сохранить</button>
+    <a class="btn secondary" href="{{ url_for('recipe_view', recipe_id=recipe.id) if mode == 'edit' else url_for('index') }}">Отмена</a>
+  </div>
+</form>
+
+<template id="ingredient-tpl">{{ ingredient_row('__KEY__', none) }}</template>
+<template id="step-tpl">{{ step_row('') }}</template>
+
+<script>
+(function () {
+  let counter = {{ (recipe.ingredients|length if recipe else 1) + 1 }};
+  const ingBox = document.getElementById('ingredients');
+  const stepBox = document.getElementById('steps');
+
+  function syncQty(row) {
+    const unit = row.querySelector('select').value;
+    const qty = row.querySelector('.qty-input');
+    qty.readOnly = unit === 'to_taste';
+    if (qty.readOnly) qty.value = '';
+  }
+
+  function addFromTemplate(id, box, key) {
+    const html = document.getElementById(id).innerHTML.replaceAll('__KEY__', key);
+    box.insertAdjacentHTML('beforeend', html);
+    const row = box.lastElementChild;
+    row.querySelector('input:not([type=hidden]):not([type=radio]), textarea').focus();
+    return row;
+  }
+
+  document.getElementById('add-ingredient').addEventListener('click', () => {
+    const row = addFromTemplate('ingredient-tpl', ingBox, 'k' + counter++);
+    syncQty(row);
+  });
+  document.getElementById('add-step').addEventListener('click', () => {
+    addFromTemplate('step-tpl', stepBox, '');
+  });
+
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.remove');
+    if (!btn) return;
+    const row = btn.closest('.row');
+    if (row.parentElement.children.length > 1) row.remove();
+  });
+  ingBox.addEventListener('change', (e) => {
+    if (e.target.tagName === 'SELECT') syncQty(e.target.closest('.row'));
+  });
+
+  // Главный ингредиент по умолчанию — первый, если ничего не выбрано.
+  if (!ingBox.querySelector('input[type=radio]:checked')) {
+    const first = ingBox.querySelector('input[type=radio]');
+    if (first) first.checked = true;
+  }
+  ingBox.querySelectorAll('.row').forEach(syncQty);
+})();
+</script>
+{% endblock %}

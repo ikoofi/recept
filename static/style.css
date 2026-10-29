@@ -1,0 +1,143 @@
+:root {
+  --bg: #faf7f2;
+  --card: #ffffff;
+  --text: #2b2622;
+  --muted: #8a8079;
+  --accent: #c0562b;
+  --accent-dark: #9e4220;
+  --border: #e6dfd6;
+  --danger: #b3261e;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+a { color: var(--accent); }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+.brand { font-weight: 700; font-size: 1.2rem; text-decoration: none; color: var(--text); }
+
+.container { max-width: 760px; margin: 24px auto; padding: 0 16px; }
+
+h1 { margin: 0 0 8px; }
+h2 { margin: 28px 0 10px; font-size: 1.2rem; }
+.muted { color: var(--muted); }
+
+.btn {
+  display: inline-block;
+  padding: 8px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.btn:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+.btn.secondary { background: transparent; color: var(--accent); }
+.btn.secondary:hover { background: #f6e9e2; }
+.btn.danger { background: transparent; color: var(--danger); border-color: var(--danger); }
+.btn.danger:hover { background: #fbeaea; }
+
+.flash { padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; background: #e8f3e8; }
+.flash.error { background: #fbeaea; color: var(--danger); }
+
+.search { display: flex; gap: 8px; margin-bottom: 20px; }
+.search input { flex: 1; }
+
+input[type=text], input[type=search], select, textarea {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  font: inherit;
+  color: inherit;
+  min-width: 0;
+}
+input[readonly] { background: #f1ede8; }
+
+.recipe-list { list-style: none; padding: 0; margin: 0; }
+.recipe-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 8px;
+}
+.recipe-list a { font-weight: 600; text-decoration: none; }
+.tag { font-size: .85rem; color: var(--muted); background: var(--bg); padding: 2px 8px; border-radius: 999px; }
+
+.recipe { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+.main-ing { color: var(--muted); margin: 0 0 16px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.actions form { margin: 0; }
+
+.ingredients { width: 100%; border-collapse: collapse; }
+.ingredients td { padding: 8px 4px; border-bottom: 1px dashed var(--border); }
+.ingredients .qty { text-align: right; white-space: nowrap; }
+.ingredients tr.main td { font-weight: 700; }
+.star { color: var(--accent); }
+
+.steps li { margin-bottom: 10px; }
+
+.recipe-form .field { display: flex; flex-direction: column; gap: 4px; }
+.row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+.ingredient-row input[name=ing_name] { flex: 1; }
+.ingredient-row .qty-input { width: 90px; }
+.step-inputs { padding-left: 22px; }
+.step-row textarea { flex: 1; resize: vertical; }
+.remove {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+.remove:hover { color: var(--danger); }
+
+.main-radio { cursor: pointer; }
+.main-radio input { position: absolute; opacity: 0; pointer-events: none; }
+.main-radio span { font-size: 1.3rem; color: #d8cfc5; }
+.main-radio input:checked + span { color: var(--accent); }
+.main-radio input:focus-visible + span { outline: 2px solid var(--accent); border-radius: 4px; }
+
+.form-actions { display: flex; gap: 8px; margin-top: 28px; }
+
+@media (max-width: 560px) {
+  .ingredient-row { flex-wrap: wrap; }
+  .ingredient-row input[name=ing_name] { flex-basis: calc(100% - 70px); }
+  .ingredient-row .qty-input { flex: 1; }
+}
+
+.scale {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 12px 14px;
+  background: var(--bg);
+  border-radius: 10px;
+}
+.scale input { width: 90px; }
+.scaled-note { font-size: .9rem; font-weight: 400; color: var(--accent); }
