@@ -1,35 +1,32 @@
--- Таблицы книги рецептов. Загружается скриптом setup_db.sh.
+-- Таблицы книги рецептов (SQLite). Выполняется приложением при каждом запуске.
 
 CREATE TABLE IF NOT EXISTS recipes (
-    id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    title       VARCHAR(255) NOT NULL,
-    author      VARCHAR(255) NULL,
-    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    -- Сравнение без учёта регистра (collation *_ci): «Борщ» и «борщ» — один рецепт.
-    UNIQUE INDEX uq_recipes_title (title)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    title       TEXT NOT NULL,
+    -- Название без учёта регистра и лишних пробелов: «Борщ» и «борщ » — один рецепт.
+    title_key   TEXT NOT NULL UNIQUE,
+    author      TEXT,
+    created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 
--- unit: l, ml, tbsp, tsp, kg, g, pcs, cloves, to_taste. Для to_taste quantity = 0.
+-- quantity хранится строкой, чтобы не терять точность дробей. Для to_taste quantity = '0'.
 CREATE TABLE IF NOT EXISTS ingredients (
-    id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    recipe_id   INT UNSIGNED NOT NULL,
-    position    SMALLINT UNSIGNED NOT NULL,
-    name        VARCHAR(255) NOT NULL,
-    quantity    DECIMAL(10,3) NOT NULL DEFAULT 0,
-    unit        ENUM('l','ml','tbsp','tsp','kg','g','pcs','cloves','to_taste') NOT NULL,
-    is_main     BOOLEAN NOT NULL DEFAULT FALSE,
-    CONSTRAINT fk_ingredients_recipe FOREIGN KEY (recipe_id)
-        REFERENCES recipes(id) ON DELETE CASCADE,
-    INDEX idx_ingredients_recipe (recipe_id, position)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipe_id   INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+    position    INTEGER NOT NULL,
+    name        TEXT NOT NULL,
+    quantity    TEXT NOT NULL DEFAULT '0',
+    unit        TEXT NOT NULL
+                CHECK (unit IN ('l','ml','tbsp','tsp','kg','g','pcs','cloves','to_taste')),
+    is_main     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_ingredients_recipe ON ingredients (recipe_id, position);
 
 CREATE TABLE IF NOT EXISTS steps (
-    id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    recipe_id   INT UNSIGNED NOT NULL,
-    position    SMALLINT UNSIGNED NOT NULL,
-    text        TEXT NOT NULL,
-    CONSTRAINT fk_steps_recipe FOREIGN KEY (recipe_id)
-        REFERENCES recipes(id) ON DELETE CASCADE,
-    INDEX idx_steps_recipe (recipe_id, position)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipe_id   INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+    position    INTEGER NOT NULL,
+    text        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_steps_recipe ON steps (recipe_id, position);

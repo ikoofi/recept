@@ -1,12 +1,13 @@
-"""Локальная книга рецептов: Flask + MySQL, экспорт рецепта в DOCX."""
+"""Локальная книга рецептов: Flask + SQLite, экспорт рецепта в DOCX."""
 import io
 import json
 import os
 import re
+import sqlite3
+from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-import pymysql
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
@@ -14,11 +15,14 @@ from flask import Flask, abort, flash, redirect, render_template, request, send_
 from werkzeug.datastructures import MultiDict
 
 BASE_DIR = Path(__file__).resolve().parent
+# База лежит рядом с программой; RECEPT_DATA позволяет хранить её в другом месте.
+DATA_DIR = Path(os.environ.get("RECEPT_DATA", BASE_DIR / "data"))
+DB_PATH = DATA_DIR / "recipes.db"
 
-# Порядок важен: так единицы показываются в выпадающем списке.
 EXPORT_FORMAT = "recept"
 EXPORT_VERSION = 1
 
+# Порядок важен: так единицы показываются в выпадающем списке.
 UNITS = {
     "g": "г",
     "kg": "кг",
@@ -32,33 +36,43 @@ UNITS = {
 }
 
 
-def load_env(path):
-    if not path.exists():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip())
-
-
-load_env(BASE_DIR / ".env")
-
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "local-recipe-book")
 
 
+def title_key(title):
+    """Ключ для сравнения названий: SQLite сам не умеет без учёта регистра в кириллице."""
+    return " ".join(title.split()).casefold()
+
+
+def fold(value):
+    return value.casefold() if isinstance(value, str) else value
+
+
+def init_db():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.executescript((BASE_DIR / "schema.sql").read_text(encoding="utf-8"))
+
+
+@contextmanager
 def get_db():
-    return pymysql.connect(
-        host=os.environ.get("DB_HOST", "localhost"),
-        port=int(os.environ.get("DB_PORT", 3306)),
-        user=os.environ.get("DB_USER", "recept"),
-        password=os.environ.get("DB_PASSWORD", ""),
-        database=os.environ.get("DB_NAME", "recept"),
-        charset="utf8mb4",
-        cursorclass=pymysql.cursors.DictCursor,
-        autocommit=False,
-    )
+    """Курсор в транзакции: коммит при успехе, откат при ошибке."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = lambda cur, row: {d[0]: v for d, v in zip(cur.description, row)}
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.create_function("fold", 1, fold, deterministic=True)
+    try:
+        yield conn.cursor()
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+init_db()
 
 
 def format_quantity(quantity, unit):
@@ -89,7 +103,7 @@ def parse_main_qty(value):
 def scale_recipe(recipe, main_qty):
     """Пересчитывает все количества пропорционально главному ингредиенту."""
     main = recipe["main"]
-    if main_qty is None or main is None or not main["quantity"]:
+    if main_qty is None or main is None or not Decimal(main["quantity"]):
         return recipe
     factor = main_qty / Decimal(main["quantity"])
     for ing in recipe["ingredients"]:
@@ -98,16 +112,16 @@ def scale_recipe(recipe, main_qty):
 
 
 def fetch_recipe(recipe_id):
-    with get_db() as conn, conn.cursor() as cur:
-        cur.execute("SELECT * FROM recipes WHERE id = %s", (recipe_id,))
+    with get_db() as cur:
+        cur.execute("SELECT * FROM recipes WHERE id = ?", (recipe_id,))
         recipe = cur.fetchone()
         if recipe is None:
             abort(404)
         cur.execute(
-            "SELECT * FROM ingredients WHERE recipe_id = %s ORDER BY position", (recipe_id,)
+            "SELECT * FROM ingredients WHERE recipe_id = ? ORDER BY position", (recipe_id,)
         )
         recipe["ingredients"] = cur.fetchall()
-        cur.execute("SELECT * FROM steps WHERE recipe_id = %s ORDER BY position", (recipe_id,))
+        cur.execute("SELECT * FROM steps WHERE recipe_id = ? ORDER BY position", (recipe_id,))
         recipe["steps"] = cur.fetchall()
     recipe["main"] = next((i for i in recipe["ingredients"] if i["is_main"]), None)
     return recipe
@@ -167,16 +181,17 @@ def parse_form(form):
 
 
 def title_exists(cur, title, exclude_id=None):
-    # Сравнение по collation таблицы: без учёта регистра и концевых пробелов.
     cur.execute(
-        "SELECT 1 FROM recipes WHERE title = %s AND id <> %s LIMIT 1", (title, exclude_id or 0)
+        "SELECT 1 FROM recipes WHERE title_key = ? AND id <> ? LIMIT 1",
+        (title_key(title), exclude_id or 0),
     )
     return cur.fetchone() is not None
 
 
 def insert_recipe(cur, recipe):
     cur.execute(
-        "INSERT INTO recipes (title, author) VALUES (%s, %s)", (recipe["title"], recipe["author"])
+        "INSERT INTO recipes (title, title_key, author) VALUES (?, ?, ?)",
+        (recipe["title"], title_key(recipe["title"]), recipe["author"]),
     )
     recipe_id = cur.lastrowid
     save_children(cur, recipe_id, recipe)
@@ -184,18 +199,18 @@ def insert_recipe(cur, recipe):
 
 
 def save_children(cur, recipe_id, recipe):
-    cur.execute("DELETE FROM ingredients WHERE recipe_id = %s", (recipe_id,))
-    cur.execute("DELETE FROM steps WHERE recipe_id = %s", (recipe_id,))
+    cur.execute("DELETE FROM ingredients WHERE recipe_id = ?", (recipe_id,))
+    cur.execute("DELETE FROM steps WHERE recipe_id = ?", (recipe_id,))
     cur.executemany(
         "INSERT INTO ingredients (recipe_id, position, name, quantity, unit, is_main)"
-        " VALUES (%s, %s, %s, %s, %s, %s)",
+        " VALUES (?, ?, ?, ?, ?, ?)",
         [
-            (recipe_id, pos, i["name"], i["quantity"], i["unit"], i["is_main"])
+            (recipe_id, pos, i["name"], format(i["quantity"], "f"), i["unit"], i["is_main"])
             for pos, i in enumerate(recipe["ingredients"], 1)
         ],
     )
     cur.executemany(
-        "INSERT INTO steps (recipe_id, position, text) VALUES (%s, %s, %s)",
+        "INSERT INTO steps (recipe_id, position, text) VALUES (?, ?, ?)",
         [(recipe_id, pos, s["text"]) for pos, s in enumerate(recipe["steps"], 1)],
     )
 
@@ -209,10 +224,10 @@ def index():
     )
     params = ()
     if q:
-        sql += " WHERE r.title LIKE %s OR r.author LIKE %s OR i.name LIKE %s"
-        params = (f"%{q}%",) * 3
-    sql += " ORDER BY r.title"
-    with get_db() as conn, conn.cursor() as cur:
+        sql += " WHERE fold(r.title) LIKE ? OR fold(r.author) LIKE ? OR fold(i.name) LIKE ?"
+        params = (f"%{q.casefold()}%",) * 3
+    sql += " ORDER BY r.title_key"
+    with get_db() as cur:
         cur.execute(sql, params)
         recipes = cur.fetchall()
     return render_template("index.html", recipes=recipes, q=q)
@@ -223,13 +238,11 @@ def recipe_new():
     if request.method == "POST":
         recipe, errors = parse_form(request.form)
         if not errors:
-            with get_db() as conn:
-                with conn.cursor() as cur:
-                    if title_exists(cur, recipe["title"]):
-                        errors.append(f"Рецепт «{recipe['title']}» уже есть в книге.")
-                    else:
-                        recipe_id = insert_recipe(cur, recipe)
-                conn.commit()
+            with get_db() as cur:
+                if title_exists(cur, recipe["title"]):
+                    errors.append(f"Рецепт «{recipe['title']}» уже есть в книге.")
+                else:
+                    recipe_id = insert_recipe(cur, recipe)
         if not errors:
             flash("Рецепт сохранён.")
             return redirect(url_for("recipe_view", recipe_id=recipe_id))
@@ -252,17 +265,16 @@ def recipe_edit(recipe_id):
     if request.method == "POST":
         recipe, errors = parse_form(request.form)
         if not errors:
-            with get_db() as conn:
-                with conn.cursor() as cur:
-                    if title_exists(cur, recipe["title"], exclude_id=recipe_id):
-                        errors.append(f"Рецепт «{recipe['title']}» уже есть в книге.")
-                    else:
-                        cur.execute(
-                            "UPDATE recipes SET title = %s, author = %s WHERE id = %s",
-                            (recipe["title"], recipe["author"], recipe_id),
-                        )
-                        save_children(cur, recipe_id, recipe)
-                conn.commit()
+            with get_db() as cur:
+                if title_exists(cur, recipe["title"], exclude_id=recipe_id):
+                    errors.append(f"Рецепт «{recipe['title']}» уже есть в книге.")
+                else:
+                    cur.execute(
+                        "UPDATE recipes SET title = ?, title_key = ?, author = ?,"
+                        " updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (recipe["title"], title_key(recipe["title"]), recipe["author"], recipe_id),
+                    )
+                    save_children(cur, recipe_id, recipe)
         if not errors:
             flash("Изменения сохранены.")
             return redirect(url_for("recipe_view", recipe_id=recipe_id))
@@ -275,10 +287,8 @@ def recipe_edit(recipe_id):
 
 @app.route("/recipe/<int:recipe_id>/delete", methods=["POST"])
 def recipe_delete(recipe_id):
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM recipes WHERE id = %s", (recipe_id,))
-        conn.commit()
+    with get_db() as cur:
+        cur.execute("DELETE FROM recipes WHERE id = ?", (recipe_id,))
     flash("Рецепт удалён.")
     return redirect(url_for("index"))
 
@@ -358,8 +368,8 @@ def recipe_export(recipe_id):
 
 @app.route("/export")
 def export_all():
-    with get_db() as conn, conn.cursor() as cur:
-        cur.execute("SELECT id FROM recipes ORDER BY title")
+    with get_db() as cur:
+        cur.execute("SELECT id FROM recipes ORDER BY title_key")
         ids = [row["id"] for row in cur.fetchall()]
     return export_response([fetch_recipe(i) for i in ids], "рецепты.json")
 
@@ -379,23 +389,36 @@ def import_recipes():
         return render_template("import.html", result=None)
 
     result = {"added": [], "skipped": [], "invalid": []}
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            for n, data in enumerate(payload["recipes"], 1):
-                try:
-                    recipe, errors = parse_form(import_to_form(data))
-                except (AttributeError, ValueError):
-                    recipe, errors = {"title": ""}, ["неверный формат"]
-                name = recipe["title"] or f"рецепт №{n}"
-                if errors:
-                    result["invalid"].append((name, errors))
-                elif title_exists(cur, recipe["title"]):
-                    result["skipped"].append(name)
-                else:
-                    insert_recipe(cur, recipe)
-                    result["added"].append(name)
-        conn.commit()
+    with get_db() as cur:
+        for n, data in enumerate(payload["recipes"], 1):
+            try:
+                recipe, errors = parse_form(import_to_form(data))
+            except (AttributeError, ValueError):
+                recipe, errors = {"title": ""}, ["неверный формат"]
+            name = recipe["title"] or f"рецепт №{n}"
+            if errors:
+                result["invalid"].append((name, errors))
+            elif title_exists(cur, recipe["title"]):
+                result["skipped"].append(name)
+            else:
+                insert_recipe(cur, recipe)
+                result["added"].append(name)
     return render_template("import.html", result=result)
+
+
+@app.route("/ping")
+def ping():
+    # Запускалка так узнаёт, что книга уже открыта.
+    return "recept"
+
+
+@app.route("/quit", methods=["POST"])
+def quit_app():
+    shutdown = app.config.get("SHUTDOWN")
+    if shutdown is None:
+        abort(404)
+    shutdown()
+    return render_template("bye.html")
 
 
 def build_docx(recipe):
@@ -438,4 +461,5 @@ def build_docx(recipe):
 
 
 if __name__ == "__main__":
+    # Режим разработки. Обычный запуск — через launcher.pyw.
     app.run(host="127.0.0.1", port=int(os.environ.get("PORT", 5000)), debug=True)

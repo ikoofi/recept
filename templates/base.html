@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Книга рецептов{% endblock %}</title>
+  <link rel="icon" href="{{ url_for('static', filename='icon.ico') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -13,6 +14,12 @@
       <a href="{{ url_for('import_recipes') }}">Импорт</a>
       <a href="{{ url_for('export_all') }}">Экспорт всех</a>
       <a class="btn" href="{{ url_for('recipe_new') }}">+ Добавить рецепт</a>
+      {% if config.LAUNCHER %}
+        <form method="post" action="{{ url_for('quit_app') }}" class="quit"
+              onsubmit="return confirm('Закрыть книгу рецептов?')">
+          <button title="Остановить программу">Выход</button>
+        </form>
+      {% endif %}
     </nav>
   </header>
   <main class="container">
