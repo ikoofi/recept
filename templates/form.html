@@ -10,6 +10,11 @@
     <input type="text" name="title" required maxlength="255" value="{{ recipe.title if recipe else '' }}">
   </label>
 
+  <label class="field">
+    <span>Автор <span class="muted">(необязательно)</span></span>
+    <input type="text" name="author" maxlength="255" value="{{ recipe.author or '' if recipe else '' }}">
+  </label>
+
   <h2>Ингредиенты</h2>
   <p class="muted">Отметьте ★ главный ингредиент. Для «по вкусу» количество не нужно.</p>
   <div id="ingredients">

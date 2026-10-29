@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <form class="search" method="get">
-  <input type="search" name="q" value="{{ q }}" placeholder="Поиск по названию или главному ингредиенту">
+  <input type="search" name="q" value="{{ q }}" placeholder="Поиск по названию, автору или главному ингредиенту">
   <button class="btn secondary">Найти</button>
 </form>
 
@@ -9,7 +9,10 @@
   <ul class="recipe-list">
     {% for r in recipes %}
       <li>
-        <a href="{{ url_for('recipe_view', recipe_id=r.id) }}">{{ r.title }}</a>
+        <span>
+          <a href="{{ url_for('recipe_view', recipe_id=r.id) }}">{{ r.title }}</a>
+          {% if r.author %}<span class="muted">· {{ r.author }}</span>{% endif %}
+        </span>
         {% if r.main_ingredient %}<span class="tag">{{ r.main_ingredient }}</span>{% endif %}
       </li>
     {% endfor %}

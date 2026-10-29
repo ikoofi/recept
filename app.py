@@ -114,6 +114,7 @@ def parse_form(form):
     title = form.get("title", "").strip()
     if not title:
         errors.append("Укажите название рецепта.")
+    author = form.get("author", "").strip() or None
 
     main_key = form.get("main")
     ingredients = []
@@ -157,7 +158,7 @@ def parse_form(form):
     if not steps:
         errors.append("Добавьте хотя бы один шаг приготовления.")
 
-    return {"title": title, "ingredients": ingredients, "steps": steps}, errors
+    return {"title": title, "author": author, "ingredients": ingredients, "steps": steps}, errors
 
 
 def save_children(cur, recipe_id, recipe):
@@ -181,13 +182,13 @@ def save_children(cur, recipe_id, recipe):
 def index():
     q = request.args.get("q", "").strip()
     sql = (
-        "SELECT r.id, r.title, i.name AS main_ingredient"
+        "SELECT r.id, r.title, r.author, i.name AS main_ingredient"
         " FROM recipes r LEFT JOIN ingredients i ON i.recipe_id = r.id AND i.is_main"
     )
     params = ()
     if q:
-        sql += " WHERE r.title LIKE %s OR i.name LIKE %s"
-        params = (f"%{q}%", f"%{q}%")
+        sql += " WHERE r.title LIKE %s OR r.author LIKE %s OR i.name LIKE %s"
+        params = (f"%{q}%",) * 3
     sql += " ORDER BY r.title"
     with get_db() as conn, conn.cursor() as cur:
         cur.execute(sql, params)
@@ -202,7 +203,10 @@ def recipe_new():
         if not errors:
             with get_db() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("INSERT INTO recipes (title) VALUES (%s)", (recipe["title"],))
+                    cur.execute(
+                        "INSERT INTO recipes (title, author) VALUES (%s, %s)",
+                        (recipe["title"], recipe["author"]),
+                    )
                     recipe_id = cur.lastrowid
                     save_children(cur, recipe_id, recipe)
                 conn.commit()
@@ -230,7 +234,8 @@ def recipe_edit(recipe_id):
             with get_db() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "UPDATE recipes SET title = %s WHERE id = %s", (recipe["title"], recipe_id)
+                        "UPDATE recipes SET title = %s, author = %s WHERE id = %s",
+                        (recipe["title"], recipe["author"], recipe_id),
                     )
                     save_children(cur, recipe_id, recipe)
                 conn.commit()
@@ -277,6 +282,11 @@ def build_docx(recipe):
 
     title = doc.add_heading(recipe["title"], level=0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    if recipe["author"]:
+        p = doc.add_paragraph()
+        p.add_run("Автор: ").italic = True
+        p.add_run(recipe["author"])
 
     if recipe["main"]:
         p = doc.add_paragraph()

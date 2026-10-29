@@ -3,6 +3,7 @@
 {% block content %}
 <article class="recipe">
   <h1>{{ recipe.title }}</h1>
+  {% if recipe.author %}<p class="author">Автор: {{ recipe.author }}</p>{% endif %}
   {% if recipe.main %}
     <p class="main-ing">Главный ингредиент: <strong>{{ recipe.main.name }}</strong></p>
   {% endif %}

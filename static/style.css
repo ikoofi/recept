@@ -87,6 +87,7 @@ input[readonly] { background: #f1ede8; }
 .tag { font-size: .85rem; color: var(--muted); background: var(--bg); padding: 2px 8px; border-radius: 999px; }
 
 .recipe { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+.author { margin: 0 0 4px; }
 .main-ing { color: var(--muted); margin: 0 0 16px; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .actions form { margin: 0; }
@@ -99,7 +100,7 @@ input[readonly] { background: #f1ede8; }
 
 .steps li { margin-bottom: 10px; }
 
-.recipe-form .field { display: flex; flex-direction: column; gap: 4px; }
+.recipe-form .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
 .row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
 .ingredient-row input[name=ing_name] { flex: 1; }
 .ingredient-row .qty-input { width: 90px; }
