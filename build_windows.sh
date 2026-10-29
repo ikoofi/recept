@@ -43,7 +43,28 @@ cp app.py launcher.pyw schema.sql "$OUT/"
 cp -r templates static "$OUT/"
 
 # Первый запуск: открывает книгу и кладёт ярлык «Книга рецептов» на рабочий стол.
-printf '@echo off\r\nstart "" "%%~dp0python\\pythonw.exe" "%%~dp0launcher.pyw"\r\n' \
+# Если .bat запустили прямо из архива (WinRAR/Проводник достают только его во временную
+# папку), папки python рядом нет — показываем понятное окно. Текст окна передаётся
+# PowerShell в base64 (UTF-16), чтобы кириллица не зависела от кодировки консоли.
+NOT_UNPACKED=$(.venv/bin/python - <<'PY'
+import base64
+msg = ("Сначала распакуйте архив.\n\n"
+       "Щёлкните по архиву КнигаРецептов правой кнопкой мыши, выберите «Извлечь всё…» "
+       "(или «Извлечь в КнигаРецептов\\» в WinRAR), затем запустите "
+       "«Книга рецептов.bat» из распакованной папки.")
+ps = ("Add-Type -AssemblyName PresentationFramework;"
+      "[System.Windows.MessageBox]::Show('%s', 'Книга рецептов', 'OK', 'Warning') | Out-Null"
+      % msg.replace("'", "''"))
+print(base64.b64encode(ps.encode("utf-16-le")).decode())
+PY
+)
+printf '%s\r\n' \
+    '@echo off' \
+    'if not exist "%~dp0python\pythonw.exe" (' \
+    "    powershell -NoProfile -EncodedCommand $NOT_UNPACKED" \
+    '    exit /b 1' \
+    ')' \
+    'start "" "%~dp0python\pythonw.exe" "%~dp0launcher.pyw"' \
     > "$OUT/Книга рецептов.bat"
 
 cat > "$OUT/Прочитай меня.txt" <<'EOF'
