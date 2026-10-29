@@ -5,7 +5,9 @@ CREATE TABLE IF NOT EXISTS recipes (
     title       VARCHAR(255) NOT NULL,
     author      VARCHAR(255) NULL,
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    -- Сравнение без учёта регистра (collation *_ci): «Борщ» и «борщ» — один рецепт.
+    UNIQUE INDEX uq_recipes_title (title)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- unit: l, ml, tbsp, tsp, kg, g, pcs, cloves, to_taste. Для to_taste quantity = 0.

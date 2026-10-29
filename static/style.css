@@ -30,6 +30,8 @@ a { color: var(--accent); }
   border-bottom: 1px solid var(--border);
 }
 .brand { font-weight: 700; font-size: 1.2rem; text-decoration: none; color: var(--text); }
+.nav { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; }
+.nav a:not(.btn) { text-decoration: none; }
 
 .container { max-width: 760px; margin: 24px auto; padding: 0 16px; }
 
@@ -142,3 +144,10 @@ input[readonly] { background: #f1ede8; }
 }
 .scale input { width: 90px; }
 .scaled-note { font-size: .9rem; font-weight: 400; color: var(--accent); }
+
+.import-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0; }
+.import-result ul { margin-top: 0; }
+
+@media (max-width: 560px) {
+  .topbar { flex-wrap: wrap; }
+}

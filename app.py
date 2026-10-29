@@ -1,5 +1,6 @@
 """Локальная книга рецептов: Flask + MySQL, экспорт рецепта в DOCX."""
 import io
+import json
 import os
 import re
 from decimal import Decimal, InvalidOperation
@@ -10,10 +11,14 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
 from flask import Flask, abort, flash, redirect, render_template, request, send_file, url_for
+from werkzeug.datastructures import MultiDict
 
 BASE_DIR = Path(__file__).resolve().parent
 
 # Порядок важен: так единицы показываются в выпадающем списке.
+EXPORT_FORMAT = "recept"
+EXPORT_VERSION = 1
+
 UNITS = {
     "g": "г",
     "kg": "кг",
@@ -161,6 +166,23 @@ def parse_form(form):
     return {"title": title, "author": author, "ingredients": ingredients, "steps": steps}, errors
 
 
+def title_exists(cur, title, exclude_id=None):
+    # Сравнение по collation таблицы: без учёта регистра и концевых пробелов.
+    cur.execute(
+        "SELECT 1 FROM recipes WHERE title = %s AND id <> %s LIMIT 1", (title, exclude_id or 0)
+    )
+    return cur.fetchone() is not None
+
+
+def insert_recipe(cur, recipe):
+    cur.execute(
+        "INSERT INTO recipes (title, author) VALUES (%s, %s)", (recipe["title"], recipe["author"])
+    )
+    recipe_id = cur.lastrowid
+    save_children(cur, recipe_id, recipe)
+    return recipe_id
+
+
 def save_children(cur, recipe_id, recipe):
     cur.execute("DELETE FROM ingredients WHERE recipe_id = %s", (recipe_id,))
     cur.execute("DELETE FROM steps WHERE recipe_id = %s", (recipe_id,))
@@ -203,13 +225,12 @@ def recipe_new():
         if not errors:
             with get_db() as conn:
                 with conn.cursor() as cur:
-                    cur.execute(
-                        "INSERT INTO recipes (title, author) VALUES (%s, %s)",
-                        (recipe["title"], recipe["author"]),
-                    )
-                    recipe_id = cur.lastrowid
-                    save_children(cur, recipe_id, recipe)
+                    if title_exists(cur, recipe["title"]):
+                        errors.append(f"Рецепт «{recipe['title']}» уже есть в книге.")
+                    else:
+                        recipe_id = insert_recipe(cur, recipe)
                 conn.commit()
+        if not errors:
             flash("Рецепт сохранён.")
             return redirect(url_for("recipe_view", recipe_id=recipe_id))
         for e in errors:
@@ -233,12 +254,16 @@ def recipe_edit(recipe_id):
         if not errors:
             with get_db() as conn:
                 with conn.cursor() as cur:
-                    cur.execute(
-                        "UPDATE recipes SET title = %s, author = %s WHERE id = %s",
-                        (recipe["title"], recipe["author"], recipe_id),
-                    )
-                    save_children(cur, recipe_id, recipe)
+                    if title_exists(cur, recipe["title"], exclude_id=recipe_id):
+                        errors.append(f"Рецепт «{recipe['title']}» уже есть в книге.")
+                    else:
+                        cur.execute(
+                            "UPDATE recipes SET title = %s, author = %s WHERE id = %s",
+                            (recipe["title"], recipe["author"], recipe_id),
+                        )
+                        save_children(cur, recipe_id, recipe)
                 conn.commit()
+        if not errors:
             flash("Изменения сохранены.")
             return redirect(url_for("recipe_view", recipe_id=recipe_id))
         for e in errors:
@@ -265,13 +290,112 @@ def recipe_docx(recipe_id):
     buf = io.BytesIO()
     doc.save(buf)
     buf.seek(0)
-    filename = re.sub(r'[\\/:*?"<>|]+', "_", recipe["title"]).strip() or "recipe"
     return send_file(
         buf,
         as_attachment=True,
-        download_name=f"{filename}.docx",
+        download_name=f"{safe_filename(recipe['title'])}.docx",
         mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
+
+
+def safe_filename(title):
+    return re.sub(r'[\\/:*?"<>|]+', "_", title).strip() or "recipe"
+
+
+def recipe_to_export(recipe):
+    return {
+        "title": recipe["title"],
+        "author": recipe["author"],
+        "ingredients": [
+            {
+                "name": i["name"],
+                "quantity": format(Decimal(i["quantity"]).normalize(), "f"),
+                "unit": i["unit"],
+                "is_main": bool(i["is_main"]),
+            }
+            for i in recipe["ingredients"]
+        ],
+        "steps": [s["text"] for s in recipe["steps"]],
+    }
+
+
+def export_response(recipes, filename):
+    payload = {
+        "format": EXPORT_FORMAT,
+        "version": EXPORT_VERSION,
+        "recipes": [recipe_to_export(r) for r in recipes],
+    }
+    buf = io.BytesIO(json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"))
+    return send_file(
+        buf, as_attachment=True, download_name=filename, mimetype="application/json"
+    )
+
+
+def import_to_form(data):
+    """Переводит рецепт из файла в вид формы, чтобы проверить его тем же parse_form."""
+    if not isinstance(data, dict):
+        raise ValueError
+    form = MultiDict()
+    form.add("title", str(data.get("title") or ""))
+    form.add("author", str(data.get("author") or ""))
+    for n, ing in enumerate(data.get("ingredients") or []):
+        form.add("ing_key", str(n))
+        form.add("ing_name", str(ing.get("name") or ""))
+        form.add("ing_qty", str(ing.get("quantity") or ""))
+        form.add("ing_unit", str(ing.get("unit") or ""))
+        if ing.get("is_main"):
+            form.add("main", str(n))
+    for step in data.get("steps") or []:
+        form.add("step", str(step))
+    return form
+
+
+@app.route("/recipe/<int:recipe_id>/export")
+def recipe_export(recipe_id):
+    recipe = fetch_recipe(recipe_id)
+    return export_response([recipe], f"{safe_filename(recipe['title'])}.json")
+
+
+@app.route("/export")
+def export_all():
+    with get_db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id FROM recipes ORDER BY title")
+        ids = [row["id"] for row in cur.fetchall()]
+    return export_response([fetch_recipe(i) for i in ids], "рецепты.json")
+
+
+@app.route("/import", methods=["GET", "POST"])
+def import_recipes():
+    if request.method == "GET":
+        return render_template("import.html", result=None)
+
+    file = request.files.get("file")
+    try:
+        payload = json.load(file.stream)
+        if payload.get("format") != EXPORT_FORMAT or not isinstance(payload.get("recipes"), list):
+            raise ValueError
+    except (AttributeError, ValueError, UnicodeDecodeError):
+        flash("Это не файл рецептов. Выберите файл .json, выгруженный из книги рецептов.", "error")
+        return render_template("import.html", result=None)
+
+    result = {"added": [], "skipped": [], "invalid": []}
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            for n, data in enumerate(payload["recipes"], 1):
+                try:
+                    recipe, errors = parse_form(import_to_form(data))
+                except (AttributeError, ValueError):
+                    recipe, errors = {"title": ""}, ["неверный формат"]
+                name = recipe["title"] or f"рецепт №{n}"
+                if errors:
+                    result["invalid"].append((name, errors))
+                elif title_exists(cur, recipe["title"]):
+                    result["skipped"].append(name)
+                else:
+                    insert_recipe(cur, recipe)
+                    result["added"].append(name)
+        conn.commit()
+    return render_template("import.html", result=result)
 
 
 def build_docx(recipe):

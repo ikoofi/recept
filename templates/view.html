@@ -10,6 +10,7 @@
 
   <div class="actions">
     <a class="btn" href="{{ url_for('recipe_docx', recipe_id=recipe.id, main_qty=main_qty|string if main_qty else none) }}">🖨 Скачать DOCX для печати</a>
+    <a class="btn secondary" href="{{ url_for('recipe_export', recipe_id=recipe.id) }}" title="Файл для передачи рецепта">Экспорт</a>
     <a class="btn secondary" href="{{ url_for('recipe_edit', recipe_id=recipe.id) }}">Редактировать</a>
     <form method="post" action="{{ url_for('recipe_delete', recipe_id=recipe.id) }}"
           data-title="{{ recipe.title }}"

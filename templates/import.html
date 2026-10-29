@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Импорт рецептов{% endblock %}
+{% block content %}
+<h1>Импорт рецептов</h1>
+<p class="muted">Выберите файл .json, выгруженный из такой же книги рецептов.
+  Рецепты с названием, которое уже есть в книге, не добавляются.</p>
+
+<form method="post" enctype="multipart/form-data" class="import-form">
+  <input type="file" name="file" accept=".json,application/json" required>
+  <button class="btn">Загрузить</button>
+</form>
+
+{% if result %}
+  <div class="import-result">
+    <h2>Добавлено: {{ result.added|length }}</h2>
+    {% if result.added %}
+      <ul>{% for t in result.added %}<li>{{ t }}</li>{% endfor %}</ul>
+    {% endif %}
+
+    {% if result.skipped %}
+      <h2>Пропущено — уже есть в книге: {{ result.skipped|length }}</h2>
+      <ul>{% for t in result.skipped %}<li>{{ t }}</li>{% endfor %}</ul>
+    {% endif %}
+
+    {% if result.invalid %}
+      <h2>Не добавлено из-за ошибок: {{ result.invalid|length }}</h2>
+      <ul>
+        {% for t, errors in result.invalid %}
+          <li>{{ t }}: {{ errors|join(' ') }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+
+    <p><a href="{{ url_for('index') }}">К списку рецептов</a></p>
+  </div>
+{% endif %}
+{% endblock %}
