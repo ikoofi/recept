@@ -19,6 +19,10 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("RECEPT_DATA", BASE_DIR / "data"))
 DB_PATH = DATA_DIR / "recipes.db"
 
+# Границы количества: мельче сотой значение округлится до нуля при показе.
+QTY_MIN = Decimal("0.01")
+QTY_MAX = Decimal("1000000000")
+
 EXPORT_FORMAT = "recept"
 EXPORT_VERSION = 1
 
@@ -91,23 +95,38 @@ app.jinja_env.filters["qty_input"] = lambda ing: (
 )
 
 
-def parse_main_qty(value):
-    """Желаемое количество главного ингредиента из ?main_qty=, либо None."""
+def parse_quantity(value):
+    """Количество из строки ввода, либо None, если это не число из допустимого диапазона."""
     try:
         q = Decimal((value or "").strip().replace(",", "."))
     except InvalidOperation:
         return None
-    return q if q > 0 else None
+    # is_finite отсекает NaN и Infinity, которые Decimal тоже считает числами.
+    return q if q.is_finite() and QTY_MIN <= q <= QTY_MAX else None
 
 
-def scale_recipe(recipe, main_qty):
-    """Пересчитывает все количества пропорционально главному ингредиенту."""
-    main = recipe["main"]
-    if main_qty is None or main is None or not Decimal(main["quantity"]):
+def scale_recipe(recipe, args):
+    """Пересчитывает рецепт из ?by=<id ингредиента>&qty=<количество>.
+
+    В recipe["scale_base"] кладёт ингредиент, по которому идёт расчёт: выбранный,
+    иначе главный, иначе первый с количеством. recipe["scaled"] — был ли пересчёт.
+    """
+    options = [i for i in recipe["ingredients"] if i["unit"] != "to_taste"]
+    by = args.get("by", type=int)
+    base = next((i for i in options if i["id"] == by), None)
+    if base is None:
+        base = next((i for i in options if i["is_main"]), options[0] if options else None)
+
+    recipe["scale_options"] = options
+    recipe["scale_base"] = base
+    recipe["scaled"] = False
+    qty = parse_quantity(args.get("qty"))
+    if qty is None or base is None or not Decimal(base["quantity"]):
         return recipe
-    factor = main_qty / Decimal(main["quantity"])
+    factor = qty / Decimal(base["quantity"])
     for ing in recipe["ingredients"]:
         ing["quantity"] = Decimal(ing["quantity"]) * factor
+    recipe["scaled"] = True
     return recipe
 
 
@@ -145,7 +164,6 @@ def parse_form(form):
     )
     for key, name, qty, unit in rows:
         name = name.strip()
-        qty = qty.strip().replace(",", ".")
         if not name:
             continue
         if unit not in UNITS:
@@ -154,13 +172,9 @@ def parse_form(form):
         if unit == "to_taste":
             quantity = Decimal(0)
         else:
-            try:
-                quantity = Decimal(qty)
-            except InvalidOperation:
-                errors.append(f"Укажите количество для «{name}».")
-                continue
-            if quantity <= 0:
-                errors.append(f"Количество для «{name}» должно быть больше нуля.")
+            quantity = parse_quantity(qty)
+            if quantity is None:
+                errors.append(f"Количество для «{name}» должно быть числом от 0,01.")
                 continue
         ingredients.append(
             {"name": name, "quantity": quantity, "unit": unit, "is_main": key == main_key}
@@ -254,9 +268,8 @@ def recipe_new():
 
 @app.route("/recipe/<int:recipe_id>")
 def recipe_view(recipe_id):
-    main_qty = parse_main_qty(request.args.get("main_qty"))
-    recipe = scale_recipe(fetch_recipe(recipe_id), main_qty)
-    return render_template("view.html", recipe=recipe, main_qty=main_qty, units=UNITS)
+    recipe = scale_recipe(fetch_recipe(recipe_id), request.args)
+    return render_template("view.html", recipe=recipe, units=UNITS)
 
 
 @app.route("/recipe/<int:recipe_id>/edit", methods=["GET", "POST"])
@@ -295,7 +308,7 @@ def recipe_delete(recipe_id):
 
 @app.route("/recipe/<int:recipe_id>/docx")
 def recipe_docx(recipe_id):
-    recipe = scale_recipe(fetch_recipe(recipe_id), parse_main_qty(request.args.get("main_qty")))
+    recipe = scale_recipe(fetch_recipe(recipe_id), request.args)
     doc = build_docx(recipe)
     buf = io.BytesIO()
     doc.save(buf)

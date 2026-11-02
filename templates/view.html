@@ -9,7 +9,7 @@
   {% endif %}
 
   <div class="actions">
-    <a class="btn" href="{{ url_for('recipe_docx', recipe_id=recipe.id, main_qty=main_qty|string if main_qty else none) }}">🖨 Скачать DOCX для печати</a>
+    <a class="btn" href="{{ url_for('recipe_docx', recipe_id=recipe.id, by=recipe.scale_base.id, qty=request.args.get('qty')) if recipe.scaled else url_for('recipe_docx', recipe_id=recipe.id) }}">🖨 Скачать DOCX для печати</a>
     <a class="btn secondary" href="{{ url_for('recipe_export', recipe_id=recipe.id) }}" title="Файл для передачи рецепта">Экспорт</a>
     <a class="btn secondary" href="{{ url_for('recipe_edit', recipe_id=recipe.id) }}">Редактировать</a>
     <form method="post" action="{{ url_for('recipe_delete', recipe_id=recipe.id) }}"
@@ -19,18 +19,31 @@
     </form>
   </div>
 
-  {% if recipe.main and recipe.main.unit != 'to_taste' %}
+  {% if recipe.scale_base %}
     <form class="scale" method="get">
-      <label for="main_qty">Рассчитать на</label>
-      <input type="text" inputmode="decimal" id="main_qty" name="main_qty" required
-             value="{{ recipe.main|qty_input|replace('.', ',') }}">
-      <span>{{ units[recipe.main.unit] }} «{{ recipe.main.name }}»</span>
+      <label for="scale-qty">Рассчитать на</label>
+      <input type="text" inputmode="decimal" id="scale-qty" name="qty" required
+             value="{{ recipe.scale_base|qty_input|replace('.', ',') }}">
+      <select name="by" id="scale-by" aria-label="Ингредиент, по которому идёт расчёт">
+        {% for ing in recipe.scale_options %}
+          <option value="{{ ing.id }}" data-qty="{{ ing|qty_input|replace('.', ',') }}"
+                  {{ 'selected' if ing.id == recipe.scale_base.id }}>
+            {{ units[ing.unit] }} — {{ ing.name }}{{ ' ★' if ing.is_main }}
+          </option>
+        {% endfor %}
+      </select>
       <button class="btn secondary">Пересчитать</button>
-      {% if main_qty %}<a href="{{ url_for('recipe_view', recipe_id=recipe.id) }}">как в рецепте</a>{% endif %}
+      {% if recipe.scaled %}<a href="{{ url_for('recipe_view', recipe_id=recipe.id) }}">как в рецепте</a>{% endif %}
     </form>
+    <script>
+      // При смене ингредиента подставляем его текущее количество.
+      document.getElementById('scale-by').addEventListener('change', (e) => {
+        document.getElementById('scale-qty').value = e.target.selectedOptions[0].dataset.qty;
+      });
+    </script>
   {% endif %}
 
-  <h2>Ингредиенты{% if main_qty %} <span class="scaled-note">(пересчитано)</span>{% endif %}</h2>
+  <h2>Ингредиенты{% if recipe.scaled %} <span class="scaled-note">(пересчитано по «{{ recipe.scale_base.name }}»)</span>{% endif %}</h2>
   <table class="ingredients">
     {% for ing in recipe.ingredients %}
       <tr class="{{ 'main' if ing.is_main }}">

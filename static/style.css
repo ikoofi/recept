@@ -146,6 +146,7 @@ input[readonly] { background: #f1ede8; }
   border-radius: 10px;
 }
 .scale input { width: 90px; }
+.scale select { flex: 0 1 260px; }
 .scaled-note { font-size: .9rem; font-weight: 400; color: var(--accent); }
 
 .import-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0; }
