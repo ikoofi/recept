@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title %}Список покупок{% endblock %}
+{% macro row(item) %}
+  <li class="buy-row" data-name="{{ item.name }}" data-amount="{{ item.amount }}">
+    <label>
+      <input type="checkbox" class="buy" data-key="{{ item.key }}" {{ 'checked' if item.key in checks }}>
+      <span class="item-name">{{ item.name }}</span>
+      <span class="item-amount">{{ item.amount }}</span>
+    </label>
+    {% if item.custom_id %}
+      <form method="post" action="{{ url_for('shopping_custom_remove') }}" class="no-print">
+        <input type="hidden" name="id" value="{{ item.custom_id }}">
+        <button class="remove" title="Убрать" aria-label="Убрать «{{ item.name }}»">✕</button>
+      </form>
+    {% else %}
+      <form method="post" action="{{ url_for('product_home') }}" class="no-print">
+        <input type="hidden" name="name" value="{{ item.name }}">
+        <input type="hidden" name="at_home" value="1">
+        <button class="home-btn" title="Есть дома: не покупать" aria-label="«{{ item.name }}» есть дома">🏠</button>
+      </form>
+    {% endif %}
+  </li>
+{% endmacro %}
+{% block content %}
+{% set step = 2 %}
+{% include "_shopping_steps.html" %}
+<article class="recipe shopping">
+  <h1>Список покупок</h1>
+  {% if recipes %}
+    <p class="muted">Для рецептов:
+      {% for r in recipes %}<a href="{{ url_for('recipe_view', recipe_id=r.id) }}">{{ r.title }}</a>{{ ', ' if not loop.last }}{% endfor %}
+    </p>
+  {% else %}
+    <p class="muted">Рецепты не выбраны. <a href="{{ url_for('shopping') }}">Выбрать рецепты</a></p>
+  {% endif %}
+
+  {% if groups or unsorted %}
+    <div class="actions no-print">
+      <button class="btn" type="button" id="share-text">📤 Отправить текстом</button>
+      {% if not config.ANDROID %}<button class="btn secondary" type="button" onclick="window.print()">🖨 Печать</button>{% endif %}
+      <a class="btn secondary" href="{{ url_for('shopping_docx') }}">Скачать DOCX</a>
+      <span class="muted share-status" id="share-status" role="status"></span>
+    </div>
+    <p class="muted no-print">🏠 — продукт есть дома: он уйдёт из списка, пока вы не нажмёте «Купить».</p>
+  {% endif %}
+
+  {% if unsorted %}
+    <section class="shop-group no-print">
+      <h2>Куда отнести?</h2>
+      <p class="muted">Эти продукты книга ещё не знает. Выберите категорию один раз, дальше она запомнится.</p>
+      {% for item in unsorted %}
+        <div class="ask-item">
+          <strong>{{ item.name }}</strong> <span class="muted">{{ item.amount }}</span>
+          <form method="post" action="{{ url_for('product_category') }}">
+            <input type="hidden" name="name" value="{{ item.name }}">
+            <select name="category" required aria-label="Отдел для «{{ item.name }}»" onchange="this.form.submit()">
+              <option value="">Выберите категорию…</option>
+              {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+            </select>
+          </form>
+        </div>
+      {% endfor %}
+    </section>
+    <section class="shop-group print-only-group" data-category="Другое" hidden>
+      <ul class="shopping-list">{% for item in unsorted %}{{ row(item) }}{% endfor %}</ul>
+    </section>
+  {% endif %}
+
+  {% for category, items in groups %}
+    <section class="shop-group" data-category="{{ category }}">
+      <h2>{{ category }}</h2>
+      <ul class="shopping-list">{% for item in items %}{{ row(item) }}{% endfor %}</ul>
+    </section>
+  {% endfor %}
+
+  <section class="no-print">
+    <h2>Добавить свой пункт</h2>
+    <form method="post" action="{{ url_for('shopping_custom_add') }}" class="custom-add" id="custom-add">
+      <input type="text" name="name" placeholder="Например, хлеб" required maxlength="255" autocomplete="off">
+      <input type="text" name="amount" placeholder="Сколько (необязательно)" maxlength="60" autocomplete="off">
+      <label class="ask-category" hidden>
+        <span>Куда относится этот продукт?</span>
+        <select name="category">
+          <option value="">Выберите категорию…</option>
+          {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+        </select>
+      </label>
+      <button class="btn secondary">+ Добавить</button>
+    </form>
+  </section>
+
+  {% if at_home %}
+    <section class="no-print">
+      <h2>Есть дома: {{ at_home|length }}</h2>
+      <p class="muted">Этого нет в списке. Нажмите «Купить», если закончилось.</p>
+      {% for item in at_home %}
+        <div class="product-row">
+          <span class="product-name">{{ item.name }} <span class="muted">{{ item.amount }}</span></span>
+          <form method="post" action="{{ url_for('product_home') }}">
+            <input type="hidden" name="name" value="{{ item.name }}">
+            <input type="hidden" name="at_home" value="0">
+            <button class="btn secondary">Купить</button>
+          </form>
+        </div>
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  <div class="actions no-print next-step">
+    {% if groups or unsorted or recipes %}
+      <form method="post" action="{{ url_for('shopping_clear') }}"
+            onsubmit="return confirm('Очистить список покупок? Сами рецепты останутся в книге.')">
+        <button class="btn danger">Очистить список</button>
+      </form>
+    {% endif %}
+  </div>
+</article>
+<script>
+  // Отмеченное сохраняется сразу, чтобы не потеряться при обновлении страницы.
+  document.querySelectorAll('.buy').forEach((box) => {
+    box.addEventListener('change', () => {
+      document.querySelectorAll('.buy').forEach((other) => {
+        if (other.dataset.key === box.dataset.key) other.checked = box.checked;
+      });
+      fetch("{{ url_for('shopping_check') }}", {
+        method: 'POST',
+        body: new URLSearchParams({ key: box.dataset.key, checked: box.checked ? '1' : '0' }),
+      });
+    });
+  });
+
+  // Для своего пункта книга спрашивает отдел так же, как в форме рецепта.
+  (function () {
+    const form = document.getElementById('custom-add');
+    const name = form.querySelector('input[name=name]');
+    const box = form.querySelector('.ask-category');
+    const select = box.querySelector('select');
+    name.addEventListener('change', async () => {
+      const value = name.value.trim();
+      let category = null;
+      if (value) {
+        try {
+          const url = "{{ url_for('ingredient_category') }}?name=" + encodeURIComponent(value);
+          category = (await (await fetch(url)).json()).category;
+        } catch (err) {
+          category = 'unknown'; // без ответа не спрашиваем: пункт окажется в «Куда отнести?»
+        }
+      }
+      box.hidden = !value || Boolean(category);
+      select.required = !box.hidden;
+    });
+  })();
+
+  // В текст идёт только то, что ещё не куплено.
+  (function () {
+    const button = document.getElementById('share-text');
+    if (!button) return;
+    const status = document.getElementById('share-status');
+    function listText() {
+      const parts = [];
+      document.querySelectorAll('.shop-group[data-category]').forEach((group) => {
+        const lines = [];
+        group.querySelectorAll('.buy-row').forEach((row) => {
+          if (row.querySelector('.buy').checked) return;
+          const amount = row.dataset.amount ? ' — ' + row.dataset.amount : '';
+          lines.push('• ' + row.dataset.name + amount);
+        });
+        if (lines.length) parts.push(group.dataset.category + ':\n' + lines.join('\n'));
+      });
+      return parts.join('\n\n');
+    }
+    async function copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (err) {
+        // Запасной способ для браузеров, где доступ к буферу закрыт.
+        const area = document.createElement('textarea');
+        area.value = text;
+        document.body.append(area);
+        area.select();
+        const copied = document.execCommand('copy');
+        area.remove();
+        return copied;
+      }
+    }
+    button.addEventListener('click', async () => {
+      const text = listText();
+      if (!text) { status.textContent = 'Всё уже куплено.'; return; }
+      if (window.AndroidApp) { window.AndroidApp.shareText(text); return; }
+      if (navigator.share) {
+        try { await navigator.share({ title: 'Список покупок', text }); return; }
+        catch (err) { if (err.name === 'AbortError') return; }
+      }
+      status.textContent = await copyText(text)
+        ? 'Список скопирован, можно вставить в сообщение.'
+        : 'Не удалось скопировать список.';
+    });
+  })();
+</script>
+{% endblock %}

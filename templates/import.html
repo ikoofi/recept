@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}Импорт рецептов{% endblock %}
+{% block title %}Импорт и экспорт{% endblock %}
 {% block content %}
-<h1>Импорт рецептов</h1>
+<h1>Импорт и экспорт</h1>
 
 {% if conflicts %}
   <p>В файле есть рецепты с названиями, которые уже встречаются в книге. Выберите, что с ними сделать.
@@ -45,6 +45,7 @@
     });
   </script>
 {% else %}
+  <h2>Импорт</h2>
   <p class="muted">Выберите файл .json, выгруженный из такой же книги рецептов.
     Если название рецепта уже есть в книге, программа спросит, что сделать.</p>
 
@@ -87,5 +88,62 @@
 
     <p><a href="{{ url_for('index') }}">К списку рецептов</a></p>
   </div>
+{% endif %}
+{% if not conflicts %}
+  <h2>Экспорт</h2>
+  {% if recipes %}
+    <p class="muted">Отметьте рецепты: получится файл .json, который можно передать другому человеку.</p>
+    <input type="search" id="export-search" class="export-search" placeholder="Найти рецепт в списке" aria-label="Найти рецепт в списке">
+    <div class="export-tools">
+      <button type="button" class="chip" id="export-all">Выбрать все</button>
+      <button type="button" class="chip" id="export-none">Снять все</button>
+      <span class="muted" id="export-count" role="status"></span>
+    </div>
+    <form method="get" action="{{ url_for('export_recipes') }}" id="export-form">
+      <ul class="export-list">
+        {% for r in recipes %}
+          <li data-search="{{ (r.title ~ ' ' ~ (r.author or '') ~ ' ' ~ (r.main_ingredient or ''))|lower }}">
+            <label>
+              <input type="checkbox" name="id" value="{{ r.id }}">
+              <span>{{ r.title }}</span>
+              {% if r.main_ingredient %}<span class="tag">{{ r.main_ingredient }}</span>{% endif %}
+            </label>
+          </li>
+        {% endfor %}
+      </ul>
+      <div class="form-actions">
+        <button class="btn" id="export-selected" disabled>Экспортировать выбранные</button>
+        <a class="btn secondary" href="{{ url_for('export_recipes') }}">Экспортировать все: {{ recipes|length }}</a>
+      </div>
+    </form>
+    <script>
+      // Поиск только скрывает строки: отмеченное при этом не сбрасывается и уходит в файл.
+      (function () {
+        const rows = [...document.querySelectorAll('.export-list li')];
+        const boxes = rows.map((row) => row.querySelector('input'));
+        const button = document.getElementById('export-selected');
+        const count = document.getElementById('export-count');
+        const update = () => {
+          const n = boxes.filter((box) => box.checked).length;
+          button.disabled = n === 0;
+          count.textContent = n ? 'Выбрано: ' + n : '';
+        };
+        document.getElementById('export-search').addEventListener('input', (e) => {
+          const q = e.target.value.trim().toLowerCase();
+          rows.forEach((row) => { row.hidden = !row.dataset.search.includes(q); });
+        });
+        const setVisible = (value) => {
+          rows.forEach((row, i) => { if (!row.hidden) boxes[i].checked = value; });
+          update();
+        };
+        document.getElementById('export-all').addEventListener('click', () => setVisible(true));
+        document.getElementById('export-none').addEventListener('click', () => setVisible(false));
+        boxes.forEach((box) => box.addEventListener('change', update));
+        update();
+      })();
+    </script>
+  {% else %}
+    <p class="muted">В книге пока нет рецептов.</p>
+  {% endif %}
 {% endif %}
 {% endblock %}

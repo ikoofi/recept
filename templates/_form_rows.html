@@ -1,6 +1,6 @@
 {% macro ingredient_row(key, ing) %}
 <div class="row ingredient-row">
-  <button type="button" class="drag" title="Перетащите, чтобы изменить порядок" aria-label="Переместить ингредиент">⠿</button>
+  <button type="button" class="drag" title="Перетащите, чтобы изменить порядок" aria-label="Переместить ингредиент">≡</button>
   <input type="hidden" name="ing_key" value="{{ key }}">
   <label class="main-radio" title="Главный ингредиент">
     <input type="radio" name="main" value="{{ key }}" {{ 'checked' if ing and ing.is_main }}><span>★</span>
@@ -12,14 +12,34 @@
     {% for code, label in units.items() %}
       <option value="{{ code }}" {{ 'selected' if ing and ing.unit == code }}>{{ label }}</option>
     {% endfor %}
+    {% for unit in custom_units %}
+      <option value="{{ unit }}" {{ 'selected' if ing and ing.unit == unit }}>{{ unit }}</option>
+    {% endfor %}
+    {% if ing and ing.unit not in units and ing.unit not in custom_units %}
+      <option value="{{ ing.unit }}" selected>{{ ing.unit }}</option>
+    {% endif %}
+    <option value="__new__">+ Своя единица…</option>
   </select>
   <button type="button" class="remove" title="Удалить">✕</button>
+  <label class="new-unit" hidden>
+    <span>Своя единица, например «стакан»</span>
+    <input type="text" maxlength="20" autocomplete="off" aria-label="Своя единица измерения">
+  </label>
+  <label class="ask-category" hidden>
+    <span>Куда относится этот продукт?</span>
+    <select name="ing_category">
+      <option value="">Выберите категорию…</option>
+      {% for c in categories %}
+        <option value="{{ c }}" {{ 'selected' if ing and ing.category == c }}>{{ c }}</option>
+      {% endfor %}
+    </select>
+  </label>
 </div>
 {% endmacro %}
 
 {% macro step_row(text) %}
 <li class="row step-row">
-  <button type="button" class="drag" title="Перетащите, чтобы изменить порядок" aria-label="Переместить шаг">⠿</button>
+  <button type="button" class="drag" title="Перетащите, чтобы изменить порядок" aria-label="Переместить шаг">≡</button>
   <textarea name="step" rows="2" placeholder="Опишите шаг">{{ text }}</textarea>
   <button type="button" class="remove" title="Удалить">✕</button>
 </li>

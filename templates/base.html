@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru"{% if theme %} data-theme="{{ theme }}"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -11,10 +11,11 @@
   <header class="topbar">
     <a class="brand" href="{{ url_for('index') }}">📖 Книга рецептов</a>
     <nav class="nav">
+      <a href="{{ url_for('menu') }}">📅 Меню</a>
       <a href="{{ url_for('shopping') }}">🛒 Покупки{% if shopping_count %} ({{ shopping_count }}){% endif %}</a>
-      <a href="{{ url_for('import_recipes') }}">Импорт</a>
-      <a href="{{ url_for('export_all') }}">Экспорт всех</a>
+      <a href="{{ url_for('import_recipes') }}">Импорт и экспорт</a>
       <a class="btn" href="{{ url_for('recipe_new') }}">+ Добавить рецепт</a>
+      <button type="button" class="theme-toggle" id="theme-toggle"></button>
       {% if config.LAUNCHER %}
         <form method="post" action="{{ url_for('quit_app') }}" class="quit"
               onsubmit="return confirm('Закрыть книгу рецептов?')">
@@ -31,5 +32,26 @@
     {% endwith %}
     {% block content %}{% endblock %}
   </main>
+  <script>
+    // Тема: как в системе, тёмная или светлая. Запоминается в cookie на год.
+    (function () {
+      const LABELS = { '': '🌓 Авто', dark: '🌙 Тёмная', light: '☀️ Светлая' };
+      const NEXT = { '': 'dark', dark: 'light', light: '' };
+      const button = document.getElementById('theme-toggle');
+      const root = document.documentElement;
+      const show = () => {
+        const current = root.dataset.theme || '';
+        button.textContent = LABELS[current];
+        button.title = 'Тема оформления: нажмите, чтобы сменить';
+      };
+      button.addEventListener('click', () => {
+        const next = NEXT[root.dataset.theme || ''];
+        if (next) root.dataset.theme = next; else delete root.dataset.theme;
+        document.cookie = 'theme=' + next + '; path=/; SameSite=Lax; max-age=' + (next ? 31536000 : 0);
+        show();
+      });
+      show();
+    })();
+  </script>
 </body>
 </html>

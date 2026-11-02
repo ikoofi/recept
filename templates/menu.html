@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Меню на неделю{% endblock %}
+{% block content %}
+<article class="recipe">
+  <h1>Меню на неделю</h1>
+  {% if has_items %}
+    <div class="actions">
+      <form method="post" action="{{ url_for('menu_to_shopping') }}">
+        <button class="btn">🛒 В список покупок</button>
+      </form>
+      <form method="post" action="{{ url_for('menu_clear') }}"
+            onsubmit="return confirm('Очистить меню? Сами рецепты останутся в книге.')">
+        <button class="btn danger">Очистить меню</button>
+      </form>
+    </div>
+    <p class="muted">Блюдо на несколько дней в покупках считается за столько же порций.</p>
+  {% else %}
+    <p class="muted">Выберите блюда на нужные дни, а затем соберите из них список покупок.</p>
+  {% endif %}
+
+  {% for day in days %}
+    <section class="menu-day">
+      <h2>{{ day.name }}</h2>
+      {% if day['items'] %}
+        <ul class="menu-items">
+          {% for item in day['items'] %}
+            <li>
+              <a href="{{ url_for('recipe_view', recipe_id=item.recipe_id) }}">{{ item.title }}</a>
+              <form method="post" action="{{ url_for('menu_remove') }}">
+                <input type="hidden" name="id" value="{{ item.id }}">
+                <button class="remove" title="Убрать" aria-label="Убрать «{{ item.title }}»">✕</button>
+              </form>
+            </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+      <form method="post" action="{{ url_for('menu_add') }}" class="menu-add">
+        <input type="hidden" name="day" value="{{ day.index }}">
+        <select name="recipe_id" required aria-label="Блюдо на {{ day.name }}">
+          <option value="">Выберите блюдо…</option>
+          {% for r in recipes %}<option value="{{ r.id }}">{{ r.title }}</option>{% endfor %}
+        </select>
+        <button class="btn secondary">+ Добавить</button>
+      </form>
+    </section>
+  {% endfor %}
+</article>
+{% endblock %}

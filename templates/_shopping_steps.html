@@ -1,0 +1,4 @@
+<nav class="steps-nav no-print" aria-label="Шаги покупок">
+  <a class="{{ 'active' if step == 1 }}" href="{{ url_for('shopping') }}">1. Рецепты{% if shopping_count %} ({{ shopping_count }}){% endif %}</a>
+  <a class="{{ 'active' if step == 2 }}" href="{{ url_for('shopping_list') }}">2. Список покупок</a>
+</nav>

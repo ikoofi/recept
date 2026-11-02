@@ -49,7 +49,7 @@
   </div>
 
   <h2>Ингредиенты</h2>
-  <p class="muted">Отметьте ★ главный ингредиент. Для «по вкусу» количество не нужно. Порядок можно менять, перетаскивая за ⠿.</p>
+  <p class="muted">Отметьте ★ главный ингредиент. Для «по вкусу» количество не нужно. Порядок можно менять, перетаскивая за ≡.</p>
   <div id="ingredients">
     {% set ings = recipe.ingredients if recipe else [] %}
     {% for ing in ings %}
@@ -91,7 +91,7 @@
   const stepBox = document.getElementById('steps');
 
   function syncQty(row) {
-    const unit = row.querySelector('select').value;
+    const unit = row.querySelector('select[name=ing_unit]').value;
     const qty = row.querySelector('.qty-input');
     qty.readOnly = unit === 'to_taste';
     if (qty.readOnly) qty.value = '';
@@ -129,8 +129,11 @@
       const row = handle.closest('.row');
       row.classList.add('dragging');
       handle.setPointerCapture(e.pointerId);
+      const edge = 70; // у края экрана список прокручивается, иначе длинный рецепт не перетащить
       const mid = (el) => { const r = el.getBoundingClientRect(); return r.top + r.height / 2; };
       const onMove = (ev) => {
+        if (ev.clientY < edge) window.scrollBy(0, -12);
+        else if (ev.clientY > window.innerHeight - edge) window.scrollBy(0, 12);
         let prev, next;
         while ((prev = row.previousElementSibling) && ev.clientY < mid(prev)) row.after(prev);
         while ((next = row.nextElementSibling) && ev.clientY > mid(next)) row.before(next);
@@ -157,6 +160,27 @@
   enableDrag(ingBox);
   enableDrag(stepBox);
 
+  // Если книга ещё не знает продукт, спрашиваем его отдел магазина прямо в строке.
+  async function askCategory(row) {
+    const name = row.querySelector('input[name=ing_name]').value.trim();
+    const box = row.querySelector('.ask-category');
+    const select = box.querySelector('select');
+    if (!name) { box.hidden = true; select.required = false; return; }
+    let category = null;
+    try {
+      const url = "{{ url_for('ingredient_category') }}?name=" + encodeURIComponent(name);
+      category = (await (await fetch(url)).json()).category;
+    } catch (err) {
+      return; // без ответа решит сервер при сохранении
+    }
+    box.hidden = Boolean(category);
+    select.required = !category;
+  }
+  ingBox.addEventListener('change', (e) => {
+    if (e.target.name === 'ing_name') askCategory(e.target.closest('.row'));
+  });
+  ingBox.querySelectorAll('.row').forEach(askCategory);
+
   // Щелчок по готовой категории добавляет её в поле.
   const tagsInput = document.getElementById('tags');
   document.querySelectorAll('.form-chips .chip').forEach((chip) => {
@@ -168,8 +192,66 @@
     });
   });
 
+  // Снимок с телефона легко превышает лимит. Уменьшаем его ещё в браузере, без лишних библиотек.
+  const PHOTO_MAX_SIDE = 1600;
+  const photoInput = document.querySelector('input[name=photo]');
+  photoInput.addEventListener('change', async () => {
+    const file = photoInput.files[0];
+    if (!file) return;
+    try {
+      const bitmap = await createImageBitmap(file);
+      const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+      if (scale === 1 && file.size < 1500000) return;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(bitmap.width * scale);
+      canvas.height = Math.round(bitmap.height * scale);
+      canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((done) => canvas.toBlob(done, 'image/jpeg', 0.85));
+      const files = new DataTransfer();
+      files.items.add(new File([blob], 'photo.jpg', { type: 'image/jpeg' }));
+      photoInput.files = files.files;
+    } catch (err) {
+      // Не вышло — отправится исходный файл, а размер проверит сервер.
+    }
+  });
+
   ingBox.addEventListener('change', (e) => {
-    if (e.target.tagName === 'SELECT') syncQty(e.target.closest('.row'));
+    if (e.target.name === 'ing_unit') {
+      const row = e.target.closest('.row');
+      const box = row.querySelector('.new-unit');
+      box.hidden = e.target.value !== '__new__';
+      if (!box.hidden) box.querySelector('input').focus();
+      syncQty(row);
+    }
+  });
+
+  // Своя единица становится обычным пунктом списка во всех строках, в том числе будущих.
+  function addCustomUnit(input) {
+    const row = input.closest('.row');
+    const select = row.querySelector('select[name=ing_unit]');
+    const label = input.value.trim().replace(/\s+/g, ' ').toLowerCase();
+    if (!label) return;
+    const selects = [...document.querySelectorAll('select[name=ing_unit]'),
+      ...document.getElementById('ingredient-tpl').content.querySelectorAll('select[name=ing_unit]')];
+    selects.forEach((other) => {
+      if ([...other.options].some((o) => o.text.toLowerCase() === label || o.value === label)) return;
+      const option = new Option(label, label);
+      other.insertBefore(option, other.querySelector('option[value="__new__"]'));
+    });
+    const match = [...select.options].find((o) => o.text.toLowerCase() === label || o.value === label);
+    select.value = match.value;
+    input.value = '';
+    input.closest('.new-unit').hidden = true;
+    syncQty(row);
+  }
+  ingBox.addEventListener('keydown', (e) => {
+    if (e.target.closest('.new-unit') && e.key === 'Enter') {
+      e.preventDefault();
+      addCustomUnit(e.target);
+    }
+  });
+  ingBox.addEventListener('focusout', (e) => {
+    if (e.target.closest('.new-unit')) addCustomUnit(e.target);
   });
 
   // Главный ингредиент по умолчанию — первый, если ничего не выбрано.

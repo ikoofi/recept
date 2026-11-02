@@ -4,6 +4,7 @@ import io
 import json
 import os
 import re
+import shutil
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -18,6 +19,7 @@ from flask import (
     Flask,
     abort,
     flash,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -37,6 +39,66 @@ IMPORTS_DIR = DATA_DIR / "imports"  # файлы импорта, ожидающ�
 # Только форматы, которые можно вставить в DOCX без дополнительных библиотек.
 PHOTO_SIGNATURES = {b"\xff\xd8\xff": "jpg", b"\x89PNG\r\n\x1a\n": "png"}
 PHOTO_MAX_BYTES = 10 * 1024 * 1024
+
+WEEK_DAYS = ("Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье")
+QUICK_MINUTES = 30
+LOCAL_HOSTS = {"127.0.0.1", "localhost"}
+
+# Отделы магазина. «Другое» — для того, что не относится к продуктам: например, салфетки.
+CATEGORIES = (
+    "Мясо и мясные продукты",
+    "Рыба и морепродукты",
+    "Молочные продукты",
+    "Яйца и яичные продукты",
+    "Плодоовощная группа",
+    "Зерно-мучные и бакалейные продукты",
+    "Жиры и масла",
+    "Сахар, мёд, кондитерское сырьё",
+    "Вкусовые и ароматические продукты",
+    "Полуфабрикаты и готовые компоненты",
+    "Другое",
+)
+# Частые продукты определяются сами, про остальные спрашиваем. Более точные шаблоны идут
+# первыми: сливочное масло — молочный продукт, хотя в названии есть «масло». \\b — начало слова.
+CATEGORY_GUESSES = (
+    ("Молочные продукты", r"\bсливочн\w* масл|\bмасл[оа] сливочн"),
+    ("Жиры и масла", r"\bмасл[оа]\b|\bмаргарин|\bсмалец|\bсало\b|\bспред"),
+    ("Полуфабрикаты и готовые компоненты", r"\bфарш|\bтесто|\bбульон|\bконцентрат|овощн\w* смес"),
+    ("Рыба и морепродукты", r"\bрыб|\bсель|\bсёмг|\bсемг|\bлосос|\bтреск|\bфорел|\bминта"
+                            r"|\bкреветк|\bкальмар|\bмиди|\bтунец|\bскумбри|\bхек|\bикр"),
+    ("Вкусовые и ароматические продукты",
+     r"\bсоль\b|\bсоли\b|\bперец чёрн|\bчёрный перец|\bчерный перец|\bперец душист|\bперец молот"
+     r"|\bперец красн|\bпаприк|\bзира|\bкорица|\bорегано|\bлавров|\bкарри|\bкуркум|\bхмели"
+     r"|\bсунели|\bкориандр|\bшафран|\bваниль|\bгвоздик|\bприправ|\bтимьян|\bрозмарин|\bмускат"
+     r"|\bмайонез|\bкетчуп|\bгорчиц|\bсоус|\bуксус|\bхрен|\bвин[оа]\b|\bконьяк|\bводк"),
+    ("Плодоовощная группа",
+     r"томатн\w* паст|консервирован|солён|солен|маринован|квашен|\bоливк|\bмаслин|\bкорнишон"
+     r"|\bкаперс|\bкартоф|\bкартошк|\bморков|\bсвёкл|\bсвекл|\bкапуст|\bлук(?:а|ов\w*)?\b"
+     r"|\bчеснок|\bпомидор|\bтомат|\bогур|\bперец|\bбаклажан|\bкабач|\bтыкв|\bредис|\bсельдере"
+     r"|\bшпинат|\bукроп|\bпетрушк|\bкинз|\bбазилик|\bзелен|\bсалат|\bшампиньон|\bгриб|\bвешенк"
+     r"|\bкукуруз|\bброкколи|\bимбир|\bяблок|\bгруш|\bбанан|\bапельсин|\bлимон|\bмандарин"
+     r"|\bвиноград|\bперсик|\bабрикос|\bслив[аы]\b|\bвишн|\bчерешн|\bклубник|\bмалин|\bсмородин"
+     r"|\bчерник|\bграна?т|\bананас|\bавокадо|\bкиви|\bгорош"),
+    ("Мясо и мясные продукты", r"\bмяс|\bговя|\bсвин|\bбаран|\bтелят|\bкуриц|\bкурин|\bиндей|\bутк"
+                               r"|\bгус|\bбекон|\bколбас|\bсосис|\bветчин|\bкопч|\bрёбр|\bребр"
+                               r"|\bпечен[ьк]|\bвырезк|\bгрудинк|\bсердц|\bязык"),
+    ("Яйца и яичные продукты", r"\bяйц|\bжелтк|\bбелк|\bмеланж|\bяичн\w* порош"),
+    ("Зерно-мучные и бакалейные продукты",
+     r"\bмук|\bрис\b|\bгреч|\bовсян|\bпшен|\bперлов|\bманн|\bкрупа|\bмакарон|\bспагетти|\bлапш"
+     r"|\bпаста\b|\bвермишел|\bгорох|\bфасол|\bчечевиц|\bхлеб|\bбатон|\bбулк|\bбулоч|\bлаваш"
+     r"|\bпанировоч|\bсухар|\bотруб|\bдрожж|\bразрыхлит|\bсод[аы]\b|\bкрахмал"),
+    ("Молочные продукты", r"\bмолок|\bкефир|\bсметан|\bсливк|\bтворог|\bсыр\b|\bфета|\bпармезан"
+                          r"|\bмоцарелл|\bйогурт|\bряженк"),
+    ("Сахар, мёд, кондитерское сырьё", r"\bсахар|\bмёд|\bмед\b|\bшоколад|\bкакао|\bварень|\bорех"
+                                       r"|\bминдал|\bфундук|\bизюм|\bкурага|\bчернослив|\bкокос|\bсироп"),
+    ("Другое", r"\bвода\b|\bсок\b|\bкофе|\bчай"),
+)
+
+SORTS = {
+    "title": "r.title_key",
+    "new": "r.id DESC",
+    "time": "r.prep_minutes IS NULL, r.prep_minutes, r.title_key",
+}
 
 MAX_MINUTES = 100000
 MAX_SERVINGS = 1000
@@ -60,6 +122,20 @@ UNITS = {
     "cloves": "зубч.",
     "to_taste": "по вкусу",
 }
+
+# Разные написания встроенных единиц: чтобы «гр.» не стало отдельной своей единицей.
+UNIT_SYNONYMS = {
+    "г": "g", "гр": "g", "грамм": "g", "граммов": "g", "граммы": "g",
+    "кг": "kg", "килограмм": "kg", "килограммов": "kg",
+    "мл": "ml", "миллилитр": "ml", "миллилитров": "ml",
+    "л": "l", "литр": "l", "литра": "l", "литров": "l",
+    "стл": "tbsp", "столоваяложка": "tbsp", "столовыхложек": "tbsp", "столовыеложки": "tbsp",
+    "чл": "tsp", "чайнаяложка": "tsp", "чайныхложек": "tsp", "чайныеложки": "tsp",
+    "шт": "pcs", "штука": "pcs", "штук": "pcs", "штуки": "pcs",
+    "зубч": "cloves", "зубчик": "cloves", "зубчика": "cloves", "зубчиков": "cloves",
+    "повкусу": "to_taste",
+}
+UNIT_MAX_LENGTH = 20
 
 # Как складывать единицы в списке покупок: (группа, множитель к базовой единице).
 SHOPPING_UNITS = {
@@ -89,6 +165,38 @@ def fold(value):
     return value.casefold() if isinstance(value, str) else value
 
 
+def migrate_custom_units(conn):
+    """Старые базы принимали только встроенные единицы: убираем это ограничение из таблицы."""
+    sql = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'ingredients'"
+    ).fetchone()[0]
+    if "CHECK" not in sql:
+        return
+    conn.commit()
+    shutil.copy2(DB_PATH, DATA_DIR / "recipes-before-custom-units.db")
+    # SQLite не умеет снимать CHECK: пересоздаём таблицу, id ингредиентов сохраняются.
+    conn.executescript(
+        """
+        BEGIN;
+        CREATE TABLE ingredients_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            recipe_id INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            quantity TEXT NOT NULL DEFAULT '0',
+            unit TEXT NOT NULL,
+            is_main INTEGER NOT NULL DEFAULT 0
+        );
+        INSERT INTO ingredients_new (id, recipe_id, position, name, quantity, unit, is_main)
+            SELECT id, recipe_id, position, name, quantity, unit, is_main FROM ingredients;
+        DROP TABLE ingredients;
+        ALTER TABLE ingredients_new RENAME TO ingredients;
+        CREATE INDEX idx_ingredients_recipe ON ingredients (recipe_id, position);
+        COMMIT;
+        """
+    )
+
+
 def init_db():
     for folder in (DATA_DIR, PHOTOS_DIR, IMPORTS_DIR):
         folder.mkdir(parents=True, exist_ok=True)
@@ -96,9 +204,19 @@ def init_db():
         conn.executescript((BASE_DIR / "schema.sql").read_text(encoding="utf-8"))
         # Базы старых версий: CREATE TABLE IF NOT EXISTS не добавляет новые столбцы.
         columns = {row[1] for row in conn.execute("PRAGMA table_info(recipes)")}
-        for column, kind in (("photo", "TEXT"), ("prep_minutes", "INTEGER"), ("servings", "INTEGER")):
+        for column, kind in (
+            ("photo", "TEXT"),
+            ("prep_minutes", "INTEGER"),
+            ("servings", "INTEGER"),
+            ("favorite", "INTEGER NOT NULL DEFAULT 0"),
+        ):
             if column not in columns:
                 conn.execute(f"ALTER TABLE recipes ADD COLUMN {column} {kind}")
+        migrate_custom_units(conn)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(shopping_recipes)")}
+        for column in ("scale_by", "scale_qty"):
+            if column not in columns:
+                conn.execute(f"ALTER TABLE shopping_recipes ADD COLUMN {column} TEXT")
 
 
 @contextmanager
@@ -127,10 +245,32 @@ def format_number(value):
     return format(q, "f").replace(".", ",")
 
 
+def unit_label(unit):
+    if unit == "servings":  # расчёт по порциям, см. scale_recipe
+        return "порц."
+    return UNITS.get(unit, unit)
+
+
+def normalize_unit(value):
+    """Код встроенной единицы или своя единица в нижнем регистре. None, если не подходит."""
+    label = " ".join((value or "").split()).casefold()
+    if value in UNITS:
+        return value
+    key = label.replace(" ", "").replace(".", "")
+    if key in UNIT_SYNONYMS:
+        return UNIT_SYNONYMS[key]
+    # __new__ — служебный пункт «Своя единица», а servings — расчёт по порциям.
+    if not key or len(label) > UNIT_MAX_LENGTH or label in ("servings", "__new__"):
+        return None
+    if not re.search(r"[^\W\d_]", label):  # хотя бы одна буква
+        return None
+    return label
+
+
 def format_quantity(quantity, unit):
     if unit == "to_taste":
         return UNITS[unit]
-    return f"{format_number(quantity)} {UNITS[unit]}"
+    return f"{format_number(quantity)} {unit_label(unit)}"
 
 
 def format_minutes(minutes):
@@ -151,8 +291,60 @@ app.jinja_env.filters["qty_input"] = lambda ing: (
     else format(Decimal(ing["quantity"]).quantize(Decimal("0.01")).normalize(), "f")
 )
 app.jinja_env.filters["number"] = format_number
+app.jinja_env.filters["unit_label"] = unit_label
 app.jinja_env.filters["minutes"] = format_minutes
 app.jinja_env.filters["photo_url"] = photo_url
+app.jinja_env.filters["name_key"] = title_key
+
+
+def guess_category(name):
+    key = title_key(name)
+    return next((c for c, pattern in CATEGORY_GUESSES if re.search(pattern, key)), None)
+
+
+def stored_categories(cur):
+    cur.execute("SELECT name_key, category FROM ingredient_categories")
+    # Отдел, которого больше нет в списке, считается невыбранным: книга спросит снова.
+    return {row["name_key"]: row["category"] for row in cur.fetchall() if row["category"] in CATEGORIES}
+
+
+def set_category(cur, name, category):
+    if category in CATEGORIES:
+        cur.execute(
+            "INSERT OR REPLACE INTO ingredient_categories (name_key, category) VALUES (?, ?)",
+            (title_key(name), category),
+        )
+
+
+def known_category(cur, name):
+    """Отдел продукта: выбранный пользователем, иначе из встроенного словаря, иначе None."""
+    cur.execute(
+        "SELECT category FROM ingredient_categories WHERE name_key = ?", (title_key(name),)
+    )
+    row = cur.fetchone()
+    return row["category"] if row and row["category"] in CATEGORIES else guess_category(name)
+
+
+@app.before_request
+def protect_book():
+    """Книгу могут использовать только её собственные страницы.
+
+    Host защищает от подмены адреса сайта, Origin и Sec-Fetch-Site — от команд с чужих страниц,
+    открытых в том же браузере. На Android к серверу могут обратиться другие приложения
+    телефона, поэтому там каждый запрос ещё обязан нести секретную cookie из MainActivity.
+    """
+    if request.host.rsplit(":", 1)[0] not in LOCAL_HOSTS:
+        abort(403)
+    token = app.config.get("ACCESS_TOKEN")
+    if token and request.endpoint != "unlock" and request.cookies.get("access") != token:
+        abort(403)
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return
+    origin = request.headers.get("Origin")
+    if origin is not None and origin != request.host_url.rstrip("/"):
+        abort(403)
+    if request.headers.get("Sec-Fetch-Site") not in (None, "same-origin", "none"):
+        abort(403)
 
 
 def parse_quantity(value):
@@ -263,12 +455,16 @@ def parse_form(form):
         form.getlist("ing_qty"),
         form.getlist("ing_unit"),
     )
-    for key, name, qty, unit in rows:
+    categories = form.getlist("ing_category")
+    for n, (key, name, qty, unit) in enumerate(rows):
         name = name.strip()
         if not name:
             continue
-        if unit not in UNITS:
-            errors.append(f"Неизвестная единица измерения у «{name}».")
+        unit = normalize_unit(unit)
+        if unit is None:
+            errors.append(
+                f"Укажите единицу измерения для «{name}»: до {UNIT_MAX_LENGTH} символов, с буквами."
+            )
             continue
         if unit == "to_taste":
             quantity = Decimal(0)
@@ -278,7 +474,13 @@ def parse_form(form):
                 errors.append(f"Количество для «{name}» должно быть числом от 0,01.")
                 continue
         ingredients.append(
-            {"name": name, "quantity": quantity, "unit": unit, "is_main": key == main_key}
+            {
+                "name": name,
+                "quantity": quantity,
+                "unit": unit,
+                "is_main": key == main_key,
+                "category": categories[n] if n < len(categories) else "",
+            }
         )
 
     if not ingredients:
@@ -303,6 +505,14 @@ def parse_form(form):
         "steps": steps,
     }
     return recipe, errors
+
+
+def require_categories(recipe, errors):
+    """При вводе вручную у нового продукта должен быть выбран отдел магазина."""
+    with get_db() as cur:
+        for ing in recipe["ingredients"]:
+            if ing["category"] not in CATEGORIES and not known_category(cur, ing["name"]):
+                errors.append(f"Выберите категорию для «{ing['name']}».")
 
 
 def photo_extension(data):
@@ -375,6 +585,11 @@ def update_recipe(cur, recipe_id, recipe):
         ),
     )
     save_children(cur, recipe_id, recipe)
+    # Ингредиенты получили новые id, сохранённый расчёт в списке покупок на них не укажет.
+    cur.execute(
+        "UPDATE shopping_recipes SET scale_by = NULL, scale_qty = NULL WHERE recipe_id = ?",
+        (recipe_id,),
+    )
 
 
 def save_children(cur, recipe_id, recipe):
@@ -392,6 +607,10 @@ def save_children(cur, recipe_id, recipe):
         "INSERT INTO steps (recipe_id, position, text) VALUES (?, ?, ?)",
         [(recipe_id, pos, s["text"]) for pos, s in enumerate(recipe["steps"], 1)],
     )
+    for ing in recipe["ingredients"]:
+        # Отдел из файла импорта не перезаписывает то, что пользователь уже выбрал сам.
+        if ing.get("category") and known_category(cur, ing["name"]) is None:
+            set_category(cur, ing["name"], ing["category"])
     cur.execute("DELETE FROM recipe_tags WHERE recipe_id = ?", (recipe_id,))
     for name in recipe["tags"]:
         key = title_key(name)
@@ -421,19 +640,24 @@ def render_form(recipe, mode):
         names = {}
         for row in cur.fetchall():
             names.setdefault(title_key(row["name"]), row["name"])
+        # Своя единица живёт, пока её используют рецепты: опечатка исчезнет вместе с ней.
+        cur.execute("SELECT DISTINCT unit FROM ingredients ORDER BY unit")
+        custom_units = [row["unit"] for row in cur.fetchall() if row["unit"] not in UNITS]
     return render_template(
         "form.html",
         recipe=recipe,
         units=UNITS,
         mode=mode,
+        categories=CATEGORIES,
+        custom_units=custom_units,
         all_tags=tags,
         ingredient_names=[names[k] for k in sorted(names)],
     )
 
 
-def search_recipes(cur, q="", tag=""):
+def search_recipes(cur, q="", tag="", favorite=False, quick=False, sort="title"):
     sql = (
-        "SELECT r.id, r.title, r.author, r.photo, r.prep_minutes, r.servings,"
+        "SELECT r.id, r.title, r.author, r.photo, r.prep_minutes, r.servings, r.favorite,"
         " i.name AS main_ingredient"
         " FROM recipes r LEFT JOIN ingredients i ON i.recipe_id = r.id AND i.is_main"
     )
@@ -447,26 +671,47 @@ def search_recipes(cur, q="", tag=""):
             " WHERE rt.recipe_id = r.id AND t.name_key = ?)"
         )
         params.append(tag)
+    if favorite:
+        where.append("r.favorite = 1")
+    if quick:
+        where.append("r.prep_minutes <= ?")
+        params.append(QUICK_MINUTES)
     if where:
         sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY r.title_key"
+    # Порядок берётся только из SORTS, поэтому подстановка в SQL безопасна.
+    sql += " ORDER BY " + SORTS.get(sort, SORTS["title"])
     cur.execute(sql, params)
     return cur.fetchall()
 
 
 @app.context_processor
-def shopping_count():
+def page_context():
     with get_db() as cur:
         cur.execute("SELECT COUNT(*) AS n FROM shopping_recipes")
-        return {"shopping_count": cur.fetchone()["n"]}
+        count = cur.fetchone()["n"]
+    # Тема хранится в cookie: они не зависят от порта, а на Android он при каждом запуске новый.
+    theme = request.cookies.get("theme")
+    return {"shopping_count": count, "theme": theme if theme in ("light", "dark") else None}
 
 
 @app.route("/")
 def index():
-    q = request.args.get("q", "").strip()
-    tag = request.args.get("tag", "").strip()
+    filters = {
+        "q": request.args.get("q", "").strip() or None,
+        "tag": request.args.get("tag", "").strip() or None,
+        "fav": request.args.get("fav") or None,
+        "quick": request.args.get("quick") or None,
+        "sort": request.args.get("sort") if request.args.get("sort") in SORTS else None,
+    }
     with get_db() as cur:
-        recipes = search_recipes(cur, q, tag)
+        recipes = search_recipes(
+            cur,
+            filters["q"] or "",
+            filters["tag"] or "",
+            favorite=bool(filters["fav"]),
+            quick=bool(filters["quick"]),
+            sort=filters["sort"] or "title",
+        )
         tags = all_tags(cur)
         cur.execute(
             "SELECT rt.recipe_id, t.name FROM recipe_tags rt JOIN tags t ON t.id = rt.tag_id"
@@ -477,7 +722,41 @@ def index():
             by_recipe.setdefault(row["recipe_id"], []).append(row["name"])
     for recipe in recipes:
         recipe["tags"] = by_recipe.get(recipe["id"], [])
-    return render_template("index.html", recipes=recipes, q=q, tag=tag, all_tags=tags)
+    return render_template(
+        "index.html", recipes=recipes, filters=filters, all_tags=tags, quick_minutes=QUICK_MINUTES
+    )
+
+
+def local_redirect(target, fallback):
+    """Возврат на страницу из формы: только в пределах самой книги."""
+    if target and target.startswith("/") and not target.startswith("//"):
+        return redirect(target)
+    return redirect(fallback)
+
+
+@app.route("/recipe/<int:recipe_id>/favorite", methods=["POST"])
+def recipe_favorite(recipe_id):
+    with get_db() as cur:
+        cur.execute("UPDATE recipes SET favorite = 1 - favorite WHERE id = ?", (recipe_id,))
+    return local_redirect(request.form.get("back"), url_for("recipe_view", recipe_id=recipe_id))
+
+
+@app.route("/recipe/<int:recipe_id>/copy", methods=["POST"])
+def recipe_copy(recipe_id):
+    recipe = fetch_recipe(recipe_id)
+    for ing in recipe["ingredients"]:
+        ing["quantity"] = Decimal(ing["quantity"])
+    photo_path = PHOTOS_DIR / recipe["photo"] if recipe["photo"] else None
+    # У копии свой файл: иначе удаление одного рецепта оставит другой без фото.
+    if photo_path and photo_path.exists():
+        recipe["photo"] = store_photo(photo_path.read_bytes())
+    else:
+        recipe["photo"] = None
+    with get_db() as cur:
+        recipe["title"] = free_copy_title(cur, recipe["title"])
+        new_id = insert_recipe(cur, recipe)
+    flash(f"Создана копия «{recipe['title']}». Измените её и сохраните.")
+    return redirect(url_for("recipe_edit", recipe_id=new_id))
 
 
 @app.route("/recipe/new", methods=["GET", "POST"])
@@ -485,9 +764,12 @@ def recipe_new():
     if request.method == "GET":
         return render_form(None, "new")
     recipe, errors = parse_form(request.form)
+    require_categories(recipe, errors)
     upload = read_photo_upload(request.files.get("photo"), errors)
     if not errors:
         with get_db() as cur:
+            for ing in recipe["ingredients"]:
+                set_category(cur, ing["name"], ing["category"])
             if title_exists(cur, recipe["title"]):
                 errors.append(f"Рецепт «{recipe['title']}» уже есть в книге.")
             else:
@@ -528,10 +810,13 @@ def recipe_edit(recipe_id):
     if request.method == "GET":
         return render_form(existing, "edit")
     recipe, errors = parse_form(request.form)
+    require_categories(recipe, errors)
     upload = read_photo_upload(request.files.get("photo"), errors)
     recipe["photo"] = existing["photo"]
     if not errors:
         with get_db() as cur:
+            for ing in recipe["ingredients"]:
+                set_category(cur, ing["name"], ing["category"])
             if title_exists(cur, recipe["title"], exclude_id=recipe_id):
                 errors.append(f"Рецепт «{recipe['title']}» уже есть в книге.")
             else:
@@ -565,10 +850,17 @@ def recipe_delete(recipe_id):
 
 
 def shopping_recipes():
+    """Выбранные рецепты, уже пересчитанные так, как задано в списке покупок."""
     with get_db() as cur:
-        cur.execute("SELECT recipe_id FROM shopping_recipes ORDER BY added_at, recipe_id")
-        ids = [row["recipe_id"] for row in cur.fetchall()]
-    return [fetch_recipe(i) for i in ids]
+        cur.execute(
+            "SELECT recipe_id, scale_by, scale_qty FROM shopping_recipes"
+            " ORDER BY added_at, recipe_id"
+        )
+        rows = cur.fetchall()
+    return [
+        scale_recipe(fetch_recipe(row["recipe_id"]), {"by": row["scale_by"], "qty": row["scale_qty"]})
+        for row in rows
+    ]
 
 
 def build_shopping_list(recipes):
@@ -582,11 +874,12 @@ def build_shopping_list(recipes):
             if ing["unit"] == "to_taste":
                 item["to_taste"] = True
             else:
-                group, multiplier = SHOPPING_UNITS[ing["unit"]]
+                # Своя единица складывается только сама с собой.
+                group, multiplier = SHOPPING_UNITS.get(ing["unit"], (ing["unit"], 1))
                 amount = Decimal(ing["quantity"]) * multiplier
                 item["amounts"][group] = item["amounts"].get(group, Decimal(0)) + amount
     return [
-        {"name": items[key]["name"], "amount": format_shopping_amount(items[key])}
+        {"key": key, "name": items[key]["name"], "amount": format_shopping_amount(items[key])}
         for key in sorted(items)
     ]
 
@@ -611,14 +904,190 @@ def format_shopping_amount(item):
 
 @app.route("/shopping")
 def shopping():
+    """Шаг 1: выбор рецептов и пересчёт каждого."""
     q = request.args.get("q", "").strip()
     selected = shopping_recipes()
     chosen_ids = {r["id"] for r in selected}
     with get_db() as cur:
         found = [r for r in search_recipes(cur, q) if r["id"] not in chosen_ids]
+    return render_template("shopping.html", selected=selected, found=found, q=q, units=UNITS)
+
+
+def shopping_groups():
+    """Содержимое списка покупок: разбивка по отделам, продукты без отдела и то, что есть дома."""
+    recipes = shopping_recipes()
+    products = build_shopping_list(recipes)
+    with get_db() as cur:
+        stored = stored_categories(cur)
+        cur.execute("SELECT name_key FROM pantry")
+        pantry = {row["name_key"] for row in cur.fetchall()}
+        cur.execute("SELECT id, name, amount FROM shopping_custom ORDER BY id")
+        custom = cur.fetchall()
+    groups = {category: [] for category in CATEGORIES}
+    unsorted_items, at_home = [], []
+    entries = [dict(p, custom_id=None) for p in products]
+    entries += [
+        {"key": f"custom:{c['id']}", "name": c["name"], "amount": c["amount"], "custom_id": c["id"]}
+        for c in custom
+    ]
+    for item in entries:
+        name_key = title_key(item["name"])
+        if item["custom_id"] is None and name_key in pantry:
+            at_home.append(item)
+            continue
+        category = stored.get(name_key) or guess_category(item["name"])
+        if category:
+            groups[category].append(item)
+        else:
+            unsorted_items.append(item)
+    return {
+        "recipes": recipes,
+        "groups": [(c, groups[c]) for c in CATEGORIES if groups[c]],
+        "unsorted": unsorted_items,
+        "at_home": at_home,
+        "keys": {item["key"] for item in entries},
+    }
+
+
+@app.route("/shopping/list")
+def shopping_list():
+    """Шаг 2: итог по отделам магазина."""
+    data = shopping_groups()
+    with get_db() as cur:
+        cur.execute("SELECT item_key FROM shopping_checks")
+        checks = {row["item_key"] for row in cur.fetchall()}
+        # Продукт, которого больше нет в списке, не должен оказаться отмеченным при возвращении.
+        for key in checks - data["keys"]:
+            cur.execute("DELETE FROM shopping_checks WHERE item_key = ?", (key,))
     return render_template(
-        "shopping.html", selected=selected, items=build_shopping_list(selected), found=found, q=q
+        "shopping_list.html", checks=checks & data["keys"], categories=CATEGORIES, **data
     )
+
+
+@app.route("/shopping/custom/add", methods=["POST"])
+def shopping_custom_add():
+    name = " ".join(request.form.get("name", "").split())
+    amount = " ".join(request.form.get("amount", "").split())
+    if name:
+        with get_db() as cur:
+            cur.execute("INSERT INTO shopping_custom (name, amount) VALUES (?, ?)", (name, amount))
+            set_category(cur, name, request.form.get("category"))
+    return redirect(url_for("shopping_list"))
+
+
+@app.route("/shopping/custom/remove", methods=["POST"])
+def shopping_custom_remove():
+    item_id = request.form.get("id", type=int)
+    with get_db() as cur:
+        cur.execute("DELETE FROM shopping_custom WHERE id = ?", (item_id,))
+        cur.execute("DELETE FROM shopping_checks WHERE item_key = ?", (f"custom:{item_id}",))
+    return redirect(url_for("shopping_list"))
+
+
+@app.route("/ingredient-category")
+def ingredient_category():
+    """Форма спрашивает здесь, знает ли книга отдел продукта."""
+    with get_db() as cur:
+        return jsonify(category=known_category(cur, request.args.get("name", "")))
+
+
+@app.route("/products/category", methods=["POST"])
+def product_category():
+    with get_db() as cur:
+        set_category(cur, request.form.get("name", ""), request.form.get("category"))
+    return local_redirect(request.form.get("back"), url_for("shopping_list"))
+
+
+@app.route("/products/home", methods=["POST"])
+def product_home():
+    key = title_key(request.form.get("name", ""))
+    with get_db() as cur:
+        if request.form.get("at_home") == "1":
+            cur.execute("INSERT OR IGNORE INTO pantry (name_key) VALUES (?)", (key,))
+        else:
+            cur.execute("DELETE FROM pantry WHERE name_key = ?", (key,))
+    return local_redirect(request.form.get("back"), url_for("shopping_list"))
+
+
+@app.route("/shopping/check", methods=["POST"])
+def shopping_check():
+    key = request.form.get("key", "")
+    with get_db() as cur:
+        if request.form.get("checked") == "1":
+            cur.execute("INSERT OR IGNORE INTO shopping_checks (item_key) VALUES (?)", (key,))
+        else:
+            cur.execute("DELETE FROM shopping_checks WHERE item_key = ?", (key,))
+    return "", 204
+
+
+@app.route("/menu")
+def menu():
+    with get_db() as cur:
+        cur.execute(
+            "SELECT m.id, m.day, r.id AS recipe_id, r.title FROM menu_items m"
+            " JOIN recipes r ON r.id = m.recipe_id ORDER BY m.day, m.id"
+        )
+        rows = cur.fetchall()
+        recipes = search_recipes(cur)
+    days = [{"index": i, "name": name, "items": []} for i, name in enumerate(WEEK_DAYS)]
+    for row in rows:
+        days[row["day"]]["items"].append(row)
+    return render_template("menu.html", days=days, recipes=recipes, has_items=bool(rows))
+
+
+@app.route("/menu/add", methods=["POST"])
+def menu_add():
+    day = request.form.get("day", type=int)
+    recipe_id = request.form.get("recipe_id", type=int)
+    if day in range(len(WEEK_DAYS)):
+        with get_db() as cur:
+            cur.execute(
+                "INSERT OR IGNORE INTO menu_items (day, recipe_id)"
+                " SELECT ?, id FROM recipes WHERE id = ?",
+                (day, recipe_id),
+            )
+    return redirect(url_for("menu"))
+
+
+@app.route("/menu/remove", methods=["POST"])
+def menu_remove():
+    with get_db() as cur:
+        cur.execute("DELETE FROM menu_items WHERE id = ?", (request.form.get("id", type=int),))
+    return redirect(url_for("menu"))
+
+
+@app.route("/menu/clear", methods=["POST"])
+def menu_clear():
+    with get_db() as cur:
+        cur.execute("DELETE FROM menu_items")
+    return redirect(url_for("menu"))
+
+
+@app.route("/menu/to-shopping", methods=["POST"])
+def menu_to_shopping():
+    """Добавляет блюда меню в покупки. Блюдо на несколько дней умножается на число дней."""
+    with get_db() as cur:
+        cur.execute("SELECT recipe_id, COUNT(*) AS days FROM menu_items GROUP BY recipe_id")
+        counts = cur.fetchall()
+    scales = {}
+    for row in counts:
+        if row["days"] > 1:
+            base = scale_recipe(fetch_recipe(row["recipe_id"]), {})["scale_base"]
+            if base:
+                qty = Decimal(base["quantity"]) * row["days"]
+                scales[row["recipe_id"]] = (str(base["id"]), format(qty, "f"))
+    with get_db() as cur:
+        for row in counts:
+            cur.execute(
+                "INSERT OR IGNORE INTO shopping_recipes (recipe_id) VALUES (?)", (row["recipe_id"],)
+            )
+            if row["recipe_id"] in scales:
+                cur.execute(
+                    "UPDATE shopping_recipes SET scale_by = ?, scale_qty = ? WHERE recipe_id = ?",
+                    (*scales[row["recipe_id"]], row["recipe_id"]),
+                )
+    flash("Блюда из меню добавлены к выбранным рецептам.")
+    return redirect(url_for("shopping"))
 
 
 def shopping_back():
@@ -650,27 +1119,54 @@ def shopping_remove():
     return shopping_back()
 
 
+@app.route("/shopping/scale", methods=["POST"])
+def shopping_scale():
+    recipe_id = request.form.get("recipe_id", type=int)
+    if "reset" in request.form:
+        by, qty = None, None
+    else:
+        by, qty = request.form.get("by"), request.form.get("qty", "").strip().replace(",", ".")
+        if parse_quantity(qty) is None:
+            flash("Количество для пересчёта должно быть числом от 0,01.", "error")
+            return shopping_back()
+    with get_db() as cur:
+        cur.execute(
+            "UPDATE shopping_recipes SET scale_by = ?, scale_qty = ? WHERE recipe_id = ?",
+            (by, qty, recipe_id),
+        )
+    return shopping_back()
+
+
 @app.route("/shopping/clear", methods=["POST"])
 def shopping_clear():
     with get_db() as cur:
         cur.execute("DELETE FROM shopping_recipes")
+        cur.execute("DELETE FROM shopping_checks")
+        cur.execute("DELETE FROM shopping_custom")
     return shopping_back()
 
 
 @app.route("/shopping/docx")
 def shopping_docx():
-    recipes = shopping_recipes()
-    if not recipes:
-        return redirect(url_for("shopping"))
+    data = shopping_groups()
+    if not data["groups"] and not data["unsorted"]:
+        return redirect(url_for("shopping_list"))
     doc = Document()
     doc.styles["Normal"].font.name = "Calibri"
     doc.styles["Normal"].font.size = Pt(12)
     doc.add_heading("Список покупок", level=0)
-    p = doc.add_paragraph()
-    p.add_run("Для рецептов: ").italic = True
-    p.add_run(", ".join(r["title"] for r in recipes))
-    for item in build_shopping_list(recipes):
-        doc.add_paragraph(f"☐  {item['name']} — {item['amount']}")
+    if data["recipes"]:
+        p = doc.add_paragraph()
+        p.add_run("Для рецептов: ").italic = True
+        p.add_run(", ".join(r["title"] for r in data["recipes"]))
+    groups = list(data["groups"])
+    if data["unsorted"]:
+        groups.append(("Другое", data["unsorted"]))
+    for category, items in groups:
+        doc.add_heading(category, level=1)
+        for item in items:
+            amount = f" — {item['amount']}" if item["amount"] else ""
+            doc.add_paragraph(f"☐  {item['name']}{amount}")
     buf = io.BytesIO()
     doc.save(buf)
     buf.seek(0)
@@ -720,6 +1216,8 @@ def import_photo(data):
 
 
 def recipe_to_export(recipe):
+    with get_db() as cur:
+        export_categories = stored_categories(cur)
     return {
         "title": recipe["title"],
         "author": recipe["author"],
@@ -733,6 +1231,7 @@ def recipe_to_export(recipe):
                 "quantity": format(Decimal(i["quantity"]).normalize(), "f"),
                 "unit": i["unit"],
                 "is_main": bool(i["is_main"]),
+                "category": export_categories.get(title_key(i["name"])) or guess_category(i["name"]),
             }
             for i in recipe["ingredients"]
         ],
@@ -767,6 +1266,7 @@ def import_to_form(data):
         form.add("ing_name", str(ing.get("name") or ""))
         form.add("ing_qty", str(ing.get("quantity") or ""))
         form.add("ing_unit", str(ing.get("unit") or ""))
+        form.add("ing_category", str(ing.get("category") or ""))
         if ing.get("is_main"):
             form.add("main", str(n))
     for step in data.get("steps") or []:
@@ -781,11 +1281,20 @@ def recipe_export(recipe_id):
 
 
 @app.route("/export")
-def export_all():
+def export_recipes():
+    """Экспорт рецептов из ?id=&id=… Без id выгружается вся книга."""
+    wanted = set(request.args.getlist("id", type=int))
     with get_db() as cur:
         cur.execute("SELECT id FROM recipes ORDER BY title_key")
         ids = [row["id"] for row in cur.fetchall()]
-    return export_response([fetch_recipe(i) for i in ids], "рецепты.json")
+    if wanted:
+        ids = [i for i in ids if i in wanted]
+    if not ids:
+        flash("Нет рецептов для экспорта.", "error")
+        return redirect(url_for("import_recipes"))
+    recipes = [fetch_recipe(i) for i in ids]
+    name = recipes[0]["title"] if len(recipes) == 1 else "рецепты"
+    return export_response(recipes, f"{safe_filename(name)}.json")
 
 
 def parse_import_entry(data):
@@ -864,40 +1373,59 @@ def apply_import(entries, choices):
     return result
 
 
-@app.route("/import", methods=["GET", "POST"])
-def import_recipes():
-    if request.method == "GET":
-        return render_template("import.html", result=None, conflicts=None)
+def render_transfer(**context):
+    """Общая страница импорта и экспорта."""
+    with get_db() as cur:
+        recipes = search_recipes(cur)
+    context.setdefault("result", None)
+    context.setdefault("conflicts", None)
+    return render_template("import.html", recipes=recipes, **context)
 
-    file = request.files.get("file")
+
+def import_file_contents(raw):
+    """Разбирает файл импорта: сразу добавляет рецепты или спрашивает про дубликаты."""
     try:
-        raw = file.read()
         payload = json.loads(raw)
         if payload.get("format") != EXPORT_FORMAT or not isinstance(payload.get("recipes"), list):
             raise ValueError
     except (AttributeError, ValueError, UnicodeDecodeError):
         flash("Это не файл рецептов. Выберите файл .json, выгруженный из книги рецептов.", "error")
-        return render_template("import.html", result=None, conflicts=None)
+        return render_transfer()
 
     with get_db() as cur:
         conflicts = find_conflicts(cur, payload["recipes"])
     if not conflicts:
-        return render_template(
-            "import.html", result=apply_import(payload["recipes"], {}), conflicts=None
-        )
+        return render_transfer(result=apply_import(payload["recipes"], {}))
 
     # Есть дубликаты: ничего не добавляем, пока пользователь не решит, что с ними делать.
     for old in IMPORTS_DIR.glob("*.json"):
         old.unlink(missing_ok=True)
     token = uuid.uuid4().hex
     (IMPORTS_DIR / f"{token}.json").write_bytes(raw)
-    return render_template(
-        "import.html",
-        result=None,
+    return render_transfer(
         conflicts=conflicts,
         token=token,
         new_count=sum(not parse_import_entry(d)[1] for d in payload["recipes"]) - len(conflicts),
     )
+
+
+@app.route("/import", methods=["GET", "POST"])
+def import_recipes():
+    if request.method == "GET":
+        return render_transfer()
+    file = request.files.get("file")
+    return import_file_contents(file.read() if file else b"")
+
+
+@app.route("/import/incoming")
+def import_incoming():
+    """Файл, открытый в книге из другого приложения Android. Его кладёт сюда MainActivity."""
+    path = IMPORTS_DIR / "incoming.json"
+    if not app.config.get("ANDROID") or not path.exists():
+        return redirect(url_for("import_recipes"))
+    raw = path.read_bytes()
+    path.unlink()
+    return import_file_contents(raw)
 
 
 @app.route("/import/apply", methods=["POST"])
@@ -911,7 +1439,26 @@ def import_apply():
     choices = {n: request.form.get(f"choice_{n}", "skip") for n in range(1, len(entries) + 1)}
     result = apply_import(entries, choices)
     path.unlink(missing_ok=True)
-    return render_template("import.html", result=result, conflicts=None)
+    return render_transfer(result=result)
+
+
+@app.route("/unlock")
+def unlock():
+    """Первый запрос приложения Android: обменивает токен из адреса на cookie.
+
+    Cookie приходит в самом ответе сервера, поэтому следующая страница её точно получит.
+    """
+    token = app.config.get("ACCESS_TOKEN")
+    if not token or request.args.get("token") != token:
+        abort(403)
+    response = local_redirect(request.args.get("next"), url_for("index"))
+    response.set_cookie("access", token, httponly=True, samesite="Lax")
+    return response
+
+
+@app.errorhandler(403)
+def forbidden(_error):
+    return "Доступ закрыт: книгу можно открыть только из самого приложения.", 403
 
 
 @app.route("/ping")

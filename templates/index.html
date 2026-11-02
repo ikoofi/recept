@@ -1,19 +1,25 @@
 {% extends "base.html" %}
 {% block content %}
 <form class="search" method="get">
-  {% if tag %}<input type="hidden" name="tag" value="{{ tag }}">{% endif %}
-  <input type="search" name="q" value="{{ q }}" placeholder="Поиск по названию, автору или главному ингредиенту">
+  {% for name in ('tag', 'fav', 'quick') %}
+    {% if filters[name] %}<input type="hidden" name="{{ name }}" value="{{ filters[name] }}">{% endif %}
+  {% endfor %}
+  <input type="search" name="q" value="{{ filters.q or '' }}" placeholder="Поиск по названию, автору или главному ингредиенту">
+  <select name="sort" aria-label="Сортировка" onchange="this.form.submit()">
+    <option value="title" {{ 'selected' if filters.sort in (none, 'title') }}>По названию</option>
+    <option value="new" {{ 'selected' if filters.sort == 'new' }}>Сначала новые</option>
+    <option value="time" {{ 'selected' if filters.sort == 'time' }}>Сначала быстрые</option>
+  </select>
   <button class="btn secondary">Найти</button>
 </form>
 
-{% if all_tags %}
-  <div class="chips tag-filter">
-    <a class="chip {{ 'active' if not tag }}" href="{{ url_for('index', q=q or none) }}">Все</a>
-    {% for t in all_tags %}
-      <a class="chip {{ 'active' if t.name_key == tag }}" href="{{ url_for('index', q=q or none, tag=t.name_key) }}">{{ t.name }}</a>
-    {% endfor %}
-  </div>
-{% endif %}
+<div class="chips tag-filter">
+  <a class="chip {{ 'active' if filters.fav }}" href="{{ url_for('index', **dict(filters, fav=none if filters.fav else 1)) }}">♥ Избранное</a>
+  <a class="chip {{ 'active' if filters.quick }}" href="{{ url_for('index', **dict(filters, quick=none if filters.quick else 1)) }}">⏱ До {{ quick_minutes }} минут</a>
+  {% for t in all_tags %}
+    <a class="chip {{ 'active' if t.name_key == filters.tag }}" href="{{ url_for('index', **dict(filters, tag=none if t.name_key == filters.tag else t.name_key)) }}">{{ t.name }}</a>
+  {% endfor %}
+</div>
 
 {% if recipes %}
   <ul class="recipe-list">
@@ -32,10 +38,15 @@
             {% if r.prep_minutes %}<span class="muted">{{ r.prep_minutes|minutes }}</span>{% endif %}
           </div>
         </div>
+        <form method="post" action="{{ url_for('recipe_favorite', recipe_id=r.id) }}" class="fav-form">
+          <input type="hidden" name="back" value="{{ request.full_path }}">
+          <button class="fav {{ 'on' if r.favorite }}" aria-pressed="{{ 'true' if r.favorite else 'false' }}"
+                  title="{{ 'Убрать из избранного' if r.favorite else 'В избранное' }}" aria-label="{{ 'Убрать из избранного' if r.favorite else 'В избранное' }}: {{ r.title }}">{{ '♥' if r.favorite else '♡' }}</button>
+        </form>
       </li>
     {% endfor %}
   </ul>
-{% elif q or tag %}
+{% elif filters.q or filters.tag or filters.fav or filters.quick %}
   <p class="muted">Ничего не найдено.</p>
 {% else %}
   <p class="muted">Рецептов пока нет. <a href="{{ url_for('recipe_new') }}">Добавьте первый</a>.</p>

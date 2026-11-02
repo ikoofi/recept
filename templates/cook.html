@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru"{% if theme %} data-theme="{{ theme }}"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,9 +8,18 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body class="cook">
-  <header class="cook-bar">
+  <div class="cook-top">
     <a class="btn secondary" href="{{ url_for('recipe_view', recipe_id=recipe.id, **request.args.to_dict()) }}">← К рецепту</a>
-    <span class="muted" id="wake-status" role="status"></span>
+    <span class="muted" id="wake-status" role="status">{{ 'Экран не погаснет' if config.ANDROID }}</span>
+  </div>
+  <header class="cook-bar">
+    <div class="timer" id="timer">
+      <span class="timer-display" id="timer-display" role="timer">10:00</span>
+      <label>мин <input type="number" id="timer-min" min="0" max="999" value="10" inputmode="numeric"></label>
+      <label>сек <input type="number" id="timer-sec" min="0" max="59" value="0" inputmode="numeric"></label>
+      <button type="button" class="btn timer-btn" id="timer-start" title="Запустить" aria-label="Запустить">▶</button>
+      <button type="button" class="btn secondary timer-btn" id="timer-restart" title="Запустить заново" aria-label="Запустить заново">↻</button>
+    </div>
   </header>
   <main class="cook-main">
     <h1>{{ recipe.title }}</h1>
@@ -37,6 +46,94 @@
     </ol>
   </main>
   <script>
+    // Таймер считает по часам, а не по тикам: фоновая вкладка получает тики с задержкой.
+    (function () {
+      const display = document.getElementById('timer-display');
+      const box = document.getElementById('timer');
+      const minInput = document.getElementById('timer-min');
+      const secInput = document.getElementById('timer-sec');
+      const startBtn = document.getElementById('timer-start');
+      let remaining = 0, endAt = 0, tick = null, audio = null;
+
+      const preset = () => (Math.max(0, +minInput.value || 0) * 60 + Math.max(0, +secInput.value || 0)) * 1000;
+      const show = () => {
+        const total = Math.ceil(remaining / 1000);
+        const secs = String(total % 60).padStart(2, '0');
+        display.textContent = Math.floor(total / 60) + ':' + secs;
+      };
+      const stop = () => { clearInterval(tick); tick = null; };
+      const setStartButton = (running) => {
+        startBtn.textContent = running ? '⏸' : '▶';
+        startBtn.title = running ? 'Пауза' : 'Запустить';
+        startBtn.setAttribute('aria-label', startBtn.title);
+      };
+      function beep() {
+        if (!audio) return;
+        for (let i = 0; i < 4; i++) {
+          const osc = audio.createOscillator();
+          const gain = audio.createGain();
+          osc.frequency.value = 880;
+          osc.connect(gain).connect(audio.destination);
+          gain.gain.value = 0.25;
+          osc.start(audio.currentTime + i * 0.5);
+          osc.stop(audio.currentTime + i * 0.5 + 0.3);
+        }
+      }
+      function finish() {
+        stop();
+        remaining = 0;
+        show();
+        box.classList.add('done');
+        setStartButton(false);
+        beep();
+        if (navigator.vibrate) navigator.vibrate([400, 200, 400, 200, 400]);
+      }
+      // На Android сигнал ставится в систему: иначе свёрнутое приложение его не подаст.
+      const native = window.AndroidApp;
+      const cancelNative = () => { if (native) native.cancelTimer(); };
+      function run() {
+        // Звук разрешён только после нажатия, поэтому создаём его здесь.
+        if (!audio && window.AudioContext) audio = new AudioContext();
+        if (audio && audio.state === 'suspended') audio.resume();
+        box.classList.remove('done');
+        endAt = Date.now() + remaining;
+        setStartButton(true);
+        if (native) native.startTimer(remaining);
+        stop();
+        tick = setInterval(() => {
+          remaining = endAt - Date.now();
+          if (remaining <= 0) finish(); else show();
+        }, 250);
+      }
+      startBtn.addEventListener('click', () => {
+        if (tick) {
+          stop();
+          cancelNative();
+          remaining = Math.max(0, endAt - Date.now());
+          setStartButton(false);
+          show();
+          return;
+        }
+        if (remaining <= 0) remaining = preset();
+        if (remaining > 0) run();
+      });
+      document.getElementById('timer-restart').addEventListener('click', () => {
+        remaining = preset();
+        show();
+        if (remaining > 0) run(); else { stop(); cancelNative(); setStartButton(false); }
+      });
+      [minInput, secInput].forEach((input) => input.addEventListener('input', () => {
+        box.classList.remove('done');
+        if (!tick) { remaining = preset(); show(); }
+      }));
+      // Ушли со страницы — таймера больше не видно и его нечем остановить.
+      window.addEventListener('pagehide', cancelNative);
+      remaining = preset();
+      show();
+    })();
+  </script>
+  {% if not config.ANDROID %}
+  <script>
     // Экран не гаснет, пока открыта страница. После сворачивания браузер снимает
     // блокировку, поэтому при возвращении запрашиваем её снова.
     (function () {
@@ -59,5 +156,6 @@
       });
     })();
   </script>
+  {% endif %}
 </body>
 </html>
