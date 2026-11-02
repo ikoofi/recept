@@ -12,6 +12,9 @@
     </form>
   </div>
   {% if recipe.author %}<p class="author">Автор: {{ recipe.author }}</p>{% endif %}
+  {% if recipe.source_url %}
+    <p class="author">Источник: <a href="{{ recipe.source_url }}" target="_blank" rel="noopener noreferrer">{{ recipe.source_url|source_label }}</a></p>
+  {% endif %}
   {% if recipe.main %}
     <p class="main-ing">Главный ингредиент: <strong>{{ recipe.main.name }}</strong></p>
   {% endif %}
@@ -51,10 +54,10 @@
     <form class="scale" method="get">
       <label for="scale-qty">Рассчитать на</label>
       <input type="text" inputmode="decimal" id="scale-qty" name="qty" required
-             value="{{ recipe.scale_base|qty_input|replace('.', ',') }}">
+             value="{{ recipe.scale_base|scale_value|replace('.', ',') }}">
       <select name="by" id="scale-by" aria-label="По чему идёт расчёт">
         {% for ing in recipe.scale_options %}
-          <option value="{{ ing.id }}" data-qty="{{ ing|qty_input|replace('.', ',') }}"
+          <option value="{{ ing.id }}" data-qty="{{ ing|scale_value|replace('.', ',') }}"
                   {{ 'selected' if ing.id == recipe.scale_base.id }}>
             {{ ing.unit|unit_label }} — {{ ing.name }}{{ ' ★' if ing.is_main }}
           </option>

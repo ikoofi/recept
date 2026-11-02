@@ -225,7 +225,16 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                return !"127.0.0.1".equals(request.getUrl().getHost());
+                if ("127.0.0.1".equals(request.getUrl().getHost())) {
+                    return false;
+                }
+                // Ссылка на источник рецепта открывается в браузере телефона.
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, request.getUrl()));
+                } catch (ActivityNotFoundException e) {
+                    Toast.makeText(MainActivity.this, "Нет браузера", Toast.LENGTH_LONG).show();
+                }
+                return true;
             }
 
             @Override

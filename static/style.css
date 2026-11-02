@@ -402,3 +402,7 @@ body.cook { font-size: 1.25rem; }
 
 .new-unit { flex: 1 1 100%; display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 8px 10px; border-radius: 8px; background: var(--hover); }
 .ingredient-row select[name=ing_unit] { max-width: 130px; }
+
+.fetch-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin: 0 0 20px; padding: 12px 14px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; }
+.fetch-form .field { flex: 1 1 260px; display: flex; flex-direction: column; gap: 4px; margin: 0; min-width: 0; }
+input[type=url] { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); font: inherit; color: inherit; min-width: 0; }

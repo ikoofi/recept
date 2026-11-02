@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS recipes (
     prep_minutes INTEGER,
     servings    INTEGER,
     favorite    INTEGER NOT NULL DEFAULT 0,
+    source_url  TEXT,            -- откуда рецепт, если импортирован по ссылке
     created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -21,6 +22,7 @@ CREATE TABLE IF NOT EXISTS ingredients (
     position    INTEGER NOT NULL,
     name        TEXT NOT NULL,
     quantity    TEXT NOT NULL DEFAULT '0',
+    quantity_max TEXT,           -- верхняя граница, если количество указано диапазоном
     unit        TEXT NOT NULL,   -- код из UNITS или своя единица текстом, например «стакан»
     is_main     INTEGER NOT NULL DEFAULT 0
 );

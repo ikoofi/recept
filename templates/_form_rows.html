@@ -6,7 +6,7 @@
     <input type="radio" name="main" value="{{ key }}" {{ 'checked' if ing and ing.is_main }}><span>★</span>
   </label>
   <input type="text" name="ing_name" placeholder="Ингредиент" list="ingredient-names" autocomplete="off" value="{{ ing.name if ing else '' }}">
-  <input type="text" inputmode="decimal" name="ing_qty" class="qty-input" placeholder="Кол-во"
+  <input type="text" name="ing_qty" class="qty-input" placeholder="Кол-во"
          value="{{ ing|qty_input if ing else '' }}">
   <select name="ing_unit">
     {% for code, label in units.items() %}

@@ -10,6 +10,7 @@ import uuid
 from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -28,6 +29,8 @@ from flask import (
     url_for,
 )
 from werkzeug.datastructures import MultiDict
+
+import site_import
 
 BASE_DIR = Path(__file__).resolve().parent
 # База лежит рядом с программой; RECEPT_DATA позволяет хранить её в другом месте.
@@ -131,6 +134,8 @@ UNIT_SYNONYMS = {
     "л": "l", "литр": "l", "литра": "l", "литров": "l",
     "стл": "tbsp", "столоваяложка": "tbsp", "столовыхложек": "tbsp", "столовыеложки": "tbsp",
     "чл": "tsp", "чайнаяложка": "tsp", "чайныхложек": "tsp", "чайныеложки": "tsp",
+    "стложка": "tbsp", "стложки": "tbsp", "стложек": "tbsp", "столоваяложки": "tbsp",
+    "чложка": "tsp", "чложки": "tsp", "чложек": "tsp", "чайнаяложки": "tsp",
     "шт": "pcs", "штука": "pcs", "штук": "pcs", "штуки": "pcs",
     "зубч": "cloves", "зубчик": "cloves", "зубчика": "cloves", "зубчиков": "cloves",
     "повкусу": "to_taste",
@@ -209,10 +214,14 @@ def init_db():
             ("prep_minutes", "INTEGER"),
             ("servings", "INTEGER"),
             ("favorite", "INTEGER NOT NULL DEFAULT 0"),
+            ("source_url", "TEXT"),
         ):
             if column not in columns:
                 conn.execute(f"ALTER TABLE recipes ADD COLUMN {column} {kind}")
         migrate_custom_units(conn)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(ingredients)")}
+        if "quantity_max" not in columns:
+            conn.execute("ALTER TABLE ingredients ADD COLUMN quantity_max TEXT")
         columns = {row[1] for row in conn.execute("PRAGMA table_info(shopping_recipes)")}
         for column in ("scale_by", "scale_qty"):
             if column not in columns:
@@ -267,10 +276,23 @@ def normalize_unit(value):
     return label
 
 
-def format_quantity(quantity, unit):
+def format_quantity(quantity, unit, quantity_max=None):
     if unit == "to_taste":
         return UNITS[unit]
+    if quantity_max is not None:
+        return f"{format_number(quantity)}–{format_number(quantity_max)} {unit_label(unit)}"
     return f"{format_number(quantity)} {unit_label(unit)}"
+
+
+def ingredient_quantity(ing):
+    """Одно число для расчёта. У диапазона это его середина: 160–200 считается как 180."""
+    low = Decimal(ing["quantity"])
+    high = ing.get("quantity_max")
+    return (low + Decimal(high)) / 2 if high is not None else low
+
+
+def plain_number(value):
+    return format(Decimal(value).quantize(Decimal("0.01")).normalize(), "f")
 
 
 def format_minutes(minutes):
@@ -285,16 +307,28 @@ def photo_url(recipe):
     return url_for("static", filename="placeholder.svg")
 
 
-app.jinja_env.filters["qty"] = lambda ing: format_quantity(ing["quantity"], ing["unit"])
-app.jinja_env.filters["qty_input"] = lambda ing: (
-    "" if ing["unit"] == "to_taste"
-    else format(Decimal(ing["quantity"]).quantize(Decimal("0.01")).normalize(), "f")
+app.jinja_env.filters["qty"] = lambda ing: format_quantity(
+    ing["quantity"], ing["unit"], ing.get("quantity_max")
 )
+
+
+def qty_input(ing):
+    """Значение поля количества в форме: «160-200» для диапазона."""
+    if ing["unit"] == "to_taste":
+        return ""
+    if ing.get("quantity_max") is not None:
+        return f"{plain_number(ing['quantity'])}-{plain_number(ing['quantity_max'])}"
+    return plain_number(ing["quantity"])
+
+
+app.jinja_env.filters["qty_input"] = qty_input
+app.jinja_env.filters["scale_value"] = lambda ing: plain_number(ingredient_quantity(ing))
 app.jinja_env.filters["number"] = format_number
 app.jinja_env.filters["unit_label"] = unit_label
 app.jinja_env.filters["minutes"] = format_minutes
 app.jinja_env.filters["photo_url"] = photo_url
 app.jinja_env.filters["name_key"] = title_key
+app.jinja_env.filters["source_label"] = lambda url: urlsplit(url).hostname or url
 
 
 def guess_category(name):
@@ -357,6 +391,22 @@ def parse_quantity(value):
     return q if q.is_finite() and QTY_MIN <= q <= QTY_MAX else None
 
 
+def parse_quantity_range(value):
+    """Количество или диапазон из поля формы: (от, до). None, если значение не подходит."""
+    parts = re.split(r"\s*[-–—]\s*", (value or "").strip())
+    if len(parts) == 1:
+        low = parse_quantity(parts[0])
+        return (low, None) if low is not None else None
+    if len(parts) != 2:
+        return None
+    low, high = parse_quantity(parts[0]), parse_quantity(parts[1])
+    if low is None or high is None:
+        return None
+    if low == high:
+        return low, None
+    return min(low, high), max(low, high)
+
+
 def scale_recipe(recipe, args):
     """Пересчитывает рецепт из ?by=<id ингредиента или servings>&qty=<количество>.
 
@@ -383,11 +433,13 @@ def scale_recipe(recipe, args):
     recipe["scale_base"] = base
     recipe["scaled"] = False
     qty = parse_quantity(args.get("qty"))
-    if qty is None or base is None or not Decimal(base["quantity"]):
+    if qty is None or base is None or not ingredient_quantity(base):
         return recipe
-    factor = qty / Decimal(base["quantity"])
+    factor = qty / ingredient_quantity(base)
     for ing in recipe["ingredients"]:
         ing["quantity"] = Decimal(ing["quantity"]) * factor
+        if ing.get("quantity_max") is not None:
+            ing["quantity_max"] = Decimal(ing["quantity_max"]) * factor
     if servings:
         servings["quantity"] = Decimal(servings["quantity"]) * factor
         recipe["servings"] = servings["quantity"]
@@ -444,6 +496,11 @@ def parse_form(form):
     if not title:
         errors.append("Укажите название рецепта.")
     author = form.get("author", "").strip() or None
+    source_url = form.get("source_url", "").strip() or None
+    # В ссылку на странице рецепта нельзя пускать ничего, кроме обычных адресов.
+    if source_url and not re.match(r"https?://", source_url):
+        errors.append("Ссылка на источник должна начинаться с http:// или https://.")
+        source_url = None
     prep_minutes = parse_count(form.get("prep_minutes"), "Время приготовления", MAX_MINUTES, errors)
     servings = parse_count(form.get("servings"), "Порции", MAX_SERVINGS, errors)
 
@@ -466,17 +523,22 @@ def parse_form(form):
                 f"Укажите единицу измерения для «{name}»: до {UNIT_MAX_LENGTH} символов, с буквами."
             )
             continue
+        quantity_max = None
         if unit == "to_taste":
             quantity = Decimal(0)
         else:
-            quantity = parse_quantity(qty)
-            if quantity is None:
-                errors.append(f"Количество для «{name}» должно быть числом от 0,01.")
+            parsed = parse_quantity_range(qty)
+            if parsed is None:
+                errors.append(
+                    f"Количество для «{name}»: число от 0,01 или диапазон, например 160-200."
+                )
                 continue
+            quantity, quantity_max = parsed
         ingredients.append(
             {
                 "name": name,
                 "quantity": quantity,
+                "quantity_max": quantity_max,
                 "unit": unit,
                 "is_main": key == main_key,
                 "category": categories[n] if n < len(categories) else "",
@@ -498,6 +560,8 @@ def parse_form(form):
         "title": title,
         "author": author,
         "photo": None,
+        "source_url": source_url,
+        "draft_photo": form.get("draft_photo") or None,
         "prep_minutes": prep_minutes,
         "servings": servings,
         "tags": parse_tags(form.get("tags")),
@@ -554,8 +618,8 @@ def title_exists(cur, title, exclude_id=None):
 
 def insert_recipe(cur, recipe):
     cur.execute(
-        "INSERT INTO recipes (title, title_key, author, photo, prep_minutes, servings)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO recipes (title, title_key, author, photo, prep_minutes, servings, source_url)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
             recipe["title"],
             title_key(recipe["title"]),
@@ -563,6 +627,7 @@ def insert_recipe(cur, recipe):
             recipe["photo"],
             recipe["prep_minutes"],
             recipe["servings"],
+            recipe.get("source_url"),
         ),
     )
     recipe_id = cur.lastrowid
@@ -573,7 +638,7 @@ def insert_recipe(cur, recipe):
 def update_recipe(cur, recipe_id, recipe):
     cur.execute(
         "UPDATE recipes SET title = ?, title_key = ?, author = ?, photo = ?, prep_minutes = ?,"
-        " servings = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        " servings = ?, source_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
         (
             recipe["title"],
             title_key(recipe["title"]),
@@ -581,6 +646,7 @@ def update_recipe(cur, recipe_id, recipe):
             recipe["photo"],
             recipe["prep_minutes"],
             recipe["servings"],
+            recipe.get("source_url"),
             recipe_id,
         ),
     )
@@ -596,10 +662,18 @@ def save_children(cur, recipe_id, recipe):
     cur.execute("DELETE FROM ingredients WHERE recipe_id = ?", (recipe_id,))
     cur.execute("DELETE FROM steps WHERE recipe_id = ?", (recipe_id,))
     cur.executemany(
-        "INSERT INTO ingredients (recipe_id, position, name, quantity, unit, is_main)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO ingredients (recipe_id, position, name, quantity, quantity_max, unit, is_main)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
         [
-            (recipe_id, pos, i["name"], format(i["quantity"], "f"), i["unit"], i["is_main"])
+            (
+                recipe_id,
+                pos,
+                i["name"],
+                format(Decimal(i["quantity"]), "f"),
+                format(Decimal(i["quantity_max"]), "f") if i.get("quantity_max") is not None else None,
+                i["unit"],
+                i["is_main"],
+            )
             for pos, i in enumerate(recipe["ingredients"], 1)
         ],
     )
@@ -759,6 +833,86 @@ def recipe_copy(recipe_id):
     return redirect(url_for("recipe_edit", recipe_id=new_id))
 
 
+DRAFT_PHOTO_NAME = re.compile(r"draft_[0-9a-f]{32}\.(?:jpg|png)")
+
+
+def read_draft_photo(name):
+    """Фото рецепта, импортированного по ссылке. Файл живёт только до сохранения."""
+    if not name or not DRAFT_PHOTO_NAME.fullmatch(name):
+        return None
+    path = IMPORTS_DIR / name
+    if not path.exists():
+        return None
+    data = path.read_bytes()
+    path.unlink()
+    return data
+
+
+@app.route("/import/draft/<name>")
+def draft_photo(name):
+    if not DRAFT_PHOTO_NAME.fullmatch(name):
+        abort(404)
+    return send_from_directory(IMPORTS_DIR, name)
+
+
+@app.route("/recipe/fetch", methods=["POST"])
+def recipe_fetch():
+    """Заполняет форму рецептом с сайта. В книгу он попадёт только после проверки и сохранения."""
+    url = request.form.get("url", "").strip()
+    try:
+        page = site_import.parse_page(site_import.fetch_page(url), url)
+    except site_import.SiteImportError as exc:
+        flash(str(exc), "error")
+        return render_form(None, "new")
+
+    ingredients, notes = [], []
+    for line in page["lines"]:
+        ing = site_import.parse_ingredient_line(line, normalize_unit)
+        if ing is None:
+            continue
+        ing["quantity"] = Decimal(ing["quantity"])
+        ing["quantity_max"] = Decimal(ing["quantity_max"]) if ing.get("quantity_max") else None
+        ing["is_main"] = False
+        ing["category"] = ""
+        ingredients.append(ing)
+        if ing["note"]:
+            notes.append(f"«{ing['name']}»: {ing['note']}.")
+    # Сайт не указывает главный ингредиент. Предлагаем первый с количеством.
+    first = next((i for i in ingredients if i["unit"] != "to_taste"), None)
+    if first:
+        first["is_main"] = True
+
+    for old in IMPORTS_DIR.glob("draft_*"):
+        old.unlink(missing_ok=True)
+    draft = None
+    image = site_import.fetch_image(page["image_url"]) if page["image_url"] else None
+    if image and photo_extension(image) and len(image) <= PHOTO_MAX_BYTES:
+        draft = f"draft_{uuid.uuid4().hex}.{photo_extension(image)}"
+        (IMPORTS_DIR / draft).write_bytes(image)
+
+    recipe = {
+        "title": page["title"],
+        "author": None,
+        "photo": None,
+        "draft_photo": draft,
+        "source_url": url,
+        "prep_minutes": page["prep_minutes"],
+        "servings": page["servings"],
+        "tags": [],
+        "ingredients": ingredients,
+        "steps": [{"text": s} for s in page["steps"]],
+    }
+    flash(
+        "Рецепт заполнен с сайта, но ещё не сохранён. Проверьте количества, "
+        "главный ингредиент и нажмите «Сохранить»."
+    )
+    for note in notes:
+        flash(note, "error")
+    if not page["steps"]:
+        flash("Шаги приготовления на странице не нашлись, добавьте их вручную.", "error")
+    return render_form(recipe, "new")
+
+
 @app.route("/recipe/new", methods=["GET", "POST"])
 def recipe_new():
     if request.method == "GET":
@@ -773,6 +927,7 @@ def recipe_new():
             if title_exists(cur, recipe["title"]):
                 errors.append(f"Рецепт «{recipe['title']}» уже есть в книге.")
             else:
+                upload = upload or read_draft_photo(recipe["draft_photo"])
                 if upload:
                     recipe["photo"] = store_photo(upload)
                 recipe_id = insert_recipe(cur, recipe)
@@ -876,8 +1031,11 @@ def build_shopping_list(recipes):
             else:
                 # Своя единица складывается только сама с собой.
                 group, multiplier = SHOPPING_UNITS.get(ing["unit"], (ing["unit"], 1))
-                amount = Decimal(ing["quantity"]) * multiplier
-                item["amounts"][group] = item["amounts"].get(group, Decimal(0)) + amount
+                low = Decimal(ing["quantity"]) * multiplier
+                high = Decimal(ing.get("quantity_max") or ing["quantity"]) * multiplier
+                # Диапазоны складываются по границам: 160–200 г + 50 г = 210–250 г.
+                total = item["amounts"].get(group, (Decimal(0), Decimal(0)))
+                item["amounts"][group] = (total[0] + low, total[1] + high)
     return [
         {"key": key, "name": items[key]["name"], "amount": format_shopping_amount(items[key])}
         for key in sorted(items)
@@ -886,17 +1044,15 @@ def build_shopping_list(recipes):
 
 def format_shopping_amount(item):
     parts = []
-    for group, amount in item["amounts"].items():
+    for group, (low, high) in item["amounts"].items():
+        unit, divisor = group, 1
         if group == "mass":
-            parts.append(
-                format_quantity(amount / 1000, "kg") if amount >= 1000 else format_quantity(amount, "g")
-            )
+            unit, divisor = ("kg", 1000) if high >= 1000 else ("g", 1)
         elif group == "volume":
-            parts.append(
-                format_quantity(amount / 1000, "l") if amount >= 1000 else format_quantity(amount, "ml")
-            )
-        else:
-            parts.append(format_quantity(amount, group))
+            unit, divisor = ("l", 1000) if high >= 1000 else ("ml", 1)
+        parts.append(
+            format_quantity(low / divisor, unit, high / divisor if high != low else None)
+        )
     if item["to_taste"]:
         parts.append(UNITS["to_taste"])
     return " + ".join(parts)
@@ -1074,7 +1230,7 @@ def menu_to_shopping():
         if row["days"] > 1:
             base = scale_recipe(fetch_recipe(row["recipe_id"]), {})["scale_base"]
             if base:
-                qty = Decimal(base["quantity"]) * row["days"]
+                qty = ingredient_quantity(base) * row["days"]
                 scales[row["recipe_id"]] = (str(base["id"]), format(qty, "f"))
     with get_db() as cur:
         for row in counts:
@@ -1223,12 +1379,18 @@ def recipe_to_export(recipe):
         "author": recipe["author"],
         "prep_minutes": recipe["prep_minutes"],
         "servings": recipe["servings"],
+        "source_url": recipe["source_url"],
         "tags": recipe["tags"],
         "photo": export_photo(recipe),
         "ingredients": [
             {
                 "name": i["name"],
                 "quantity": format(Decimal(i["quantity"]).normalize(), "f"),
+                "quantity_max": (
+                    format(Decimal(i["quantity_max"]).normalize(), "f")
+                    if i.get("quantity_max") is not None
+                    else None
+                ),
                 "unit": i["unit"],
                 "is_main": bool(i["is_main"]),
                 "category": export_categories.get(title_key(i["name"])) or guess_category(i["name"]),
@@ -1258,13 +1420,17 @@ def import_to_form(data):
     form = MultiDict()
     form.add("title", str(data.get("title") or ""))
     form.add("author", str(data.get("author") or ""))
+    form.add("source_url", str(data.get("source_url") or ""))
     form.add("prep_minutes", str(data.get("prep_minutes") or ""))
     form.add("servings", str(data.get("servings") or ""))
     form.add("tags", ", ".join(str(t) for t in data.get("tags") or []))
     for n, ing in enumerate(data.get("ingredients") or []):
         form.add("ing_key", str(n))
         form.add("ing_name", str(ing.get("name") or ""))
-        form.add("ing_qty", str(ing.get("quantity") or ""))
+        quantity = str(ing.get("quantity") or "")
+        if ing.get("quantity_max"):
+            quantity += f"-{ing['quantity_max']}"
+        form.add("ing_qty", quantity)
         form.add("ing_unit", str(ing.get("unit") or ""))
         form.add("ing_category", str(ing.get("category") or ""))
         if ing.get("is_main"):
@@ -1523,7 +1689,7 @@ def build_docx(recipe):
         cells = table.add_row().cells
         name_run = cells[0].paragraphs[0].add_run(ing["name"])
         qty_run = cells[1].paragraphs[0].add_run(
-            format_quantity(ing["quantity"], ing["unit"])
+            format_quantity(ing["quantity"], ing["unit"], ing.get("quantity_max"))
         )
         if ing["is_main"]:
             name_run.bold = qty_run.bold = True

@@ -53,10 +53,10 @@
             <input type="hidden" name="q" value="{{ q }}">
             <label for="qty-{{ r.id }}">Рассчитать на</label>
             <input type="text" inputmode="decimal" id="qty-{{ r.id }}" name="qty"
-                   value="{{ r.scale_base|qty_input|replace('.', ',') }}">
+                   value="{{ r.scale_base|scale_value|replace('.', ',') }}">
             <select name="by" class="scale-by" aria-label="По чему идёт расчёт">
               {% for ing in r.scale_options %}
-                <option value="{{ ing.id }}" data-qty="{{ ing|qty_input|replace('.', ',') }}"
+                <option value="{{ ing.id }}" data-qty="{{ ing|scale_value|replace('.', ',') }}"
                         {{ 'selected' if ing.id == r.scale_base.id }}>
                   {{ ing.unit|unit_label }} — {{ ing.name }}{{ ' ★' if ing.is_main }}
                 </option>

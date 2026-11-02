@@ -39,7 +39,7 @@ Lib\\site-packages
 ..
 EOF
 
-cp app.py launcher.pyw schema.sql "$OUT/"
+cp app.py site_import.py launcher.pyw schema.sql "$OUT/"
 cp -r templates static "$OUT/"
 cp sample_recipes.json "$OUT/Примеры рецептов.json"
 

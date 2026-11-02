@@ -4,7 +4,18 @@
 {% block content %}
 <h1>{{ 'Новый рецепт' if mode == 'new' else 'Редактирование рецепта' }}</h1>
 
-<form method="post" class="recipe-form" enctype="multipart/form-data">
+{% if mode == 'new' %}
+  <form method="post" action="{{ url_for('recipe_fetch') }}" class="fetch-form">
+    <label class="field">
+      <span>Заполнить по ссылке <span class="muted">(пока только russianfood.com)</span></span>
+      <input type="url" name="url" required placeholder="https://www.russianfood.com/recipes/recipe.php?rid=…">
+    </label>
+    <button class="btn secondary">Заполнить</button>
+  </form>
+{% endif %}
+
+<form method="post" class="recipe-form" enctype="multipart/form-data"
+      action="{{ url_for('recipe_edit', recipe_id=recipe.id) if mode == 'edit' else url_for('recipe_new') }}">
   <label class="field">
     <span>Название</span>
     <input type="text" name="title" required maxlength="255" value="{{ recipe.title if recipe else '' }}">
@@ -13,6 +24,11 @@
   <label class="field">
     <span>Автор <span class="muted">(необязательно)</span></span>
     <input type="text" name="author" maxlength="255" value="{{ recipe.author or '' if recipe else '' }}">
+  </label>
+
+  <label class="field">
+    <span>Ссылка на источник <span class="muted">(необязательно)</span></span>
+    <input type="url" name="source_url" value="{{ recipe.source_url or '' if recipe else '' }}">
   </label>
 
   <div class="field-row">
@@ -45,11 +61,18 @@
         <label><input type="checkbox" name="photo_remove"> Удалить фото</label>
       </div>
     {% endif %}
+    {% if recipe and recipe.draft_photo %}
+      <div class="photo-edit">
+        <img src="{{ url_for('draft_photo', name=recipe.draft_photo) }}" alt="Фото с сайта">
+        <span class="muted">Фото с сайта. Выберите файл ниже, чтобы заменить его.</span>
+      </div>
+      <input type="hidden" name="draft_photo" value="{{ recipe.draft_photo }}">
+    {% endif %}
     <input type="file" name="photo" accept="image/jpeg,image/png">
   </div>
 
   <h2>Ингредиенты</h2>
-  <p class="muted">Отметьте ★ главный ингредиент. Для «по вкусу» количество не нужно. Порядок можно менять, перетаскивая за ≡.</p>
+  <p class="muted">Отметьте ★ главный ингредиент. Для «по вкусу» количество не нужно. Можно указать диапазон: 160-200. Порядок можно менять, перетаскивая за ≡.</p>
   <div id="ingredients">
     {% set ings = recipe.ingredients if recipe else [] %}
     {% for ing in ings %}

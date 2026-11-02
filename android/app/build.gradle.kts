@@ -13,7 +13,7 @@ val signingFile = File(System.getProperty("user.home"), "Android/keys/signing.pr
 val webappDir = layout.buildDirectory.dir("generated/webapp")
 val syncWebapp by tasks.registering(Sync::class) {
     from("../..") {
-        include("app.py", "schema.sql", "templates/**", "static/**")
+        include("app.py", "site_import.py", "schema.sql", "templates/**", "static/**")
     }
     into(webappDir.map { it.dir("webapp") })
 }
@@ -27,8 +27,8 @@ android {
         applicationId = "ru.recept.book"
         minSdk = 24
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.5"
+        versionCode = 8
+        versionName = "1.7"
         ndk {
             // Для Python 3.12 библиотека lxml есть только под 64-битные устройства.
             abiFilters += listOf("arm64-v8a", "x86_64")
