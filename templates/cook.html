@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Готовим: {{ recipe.title }}</title>
+  <link rel="icon" href="{{ url_for('static', filename='icon.ico') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="cook">
+  <header class="cook-bar">
+    <a class="btn secondary" href="{{ url_for('recipe_view', recipe_id=recipe.id, **request.args.to_dict()) }}">← К рецепту</a>
+    <span class="muted" id="wake-status" role="status"></span>
+  </header>
+  <main class="cook-main">
+    <h1>{{ recipe.title }}</h1>
+    {% if recipe.servings or recipe.prep_minutes %}
+      <p class="muted">
+        {% if recipe.servings %}Порций: {{ recipe.servings|number }}{% endif %}
+        {% if recipe.servings and recipe.prep_minutes %}·{% endif %}
+        {% if recipe.prep_minutes %}Время: {{ recipe.prep_minutes|minutes }}{% endif %}
+      </p>
+    {% endif %}
+
+    <h2>Ингредиенты</h2>
+    <ul class="cook-list">
+      {% for ing in recipe.ingredients %}
+        <li><label><input type="checkbox"><span>{{ ing.name }} — <strong>{{ ing|qty }}</strong></span></label></li>
+      {% endfor %}
+    </ul>
+
+    <h2>Приготовление</h2>
+    <ol class="cook-list cook-steps">
+      {% for step in recipe.steps %}
+        <li><label><input type="checkbox"><span>{{ step.text }}</span></label></li>
+      {% endfor %}
+    </ol>
+  </main>
+  <script>
+    // Экран не гаснет, пока открыта страница. После сворачивания браузер снимает
+    // блокировку, поэтому при возвращении запрашиваем её снова.
+    (function () {
+      const status = document.getElementById('wake-status');
+      async function keepAwake() {
+        if (!('wakeLock' in navigator)) {
+          status.textContent = 'Этот браузер не умеет удерживать экран включённым';
+          return;
+        }
+        try {
+          await navigator.wakeLock.request('screen');
+          status.textContent = 'Экран не погаснет';
+        } catch (err) {
+          status.textContent = 'Не удалось удержать экран включённым';
+        }
+      }
+      keepAwake();
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') keepAwake();
+      });
+    })();
+  </script>
+</body>
+</html>

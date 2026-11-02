@@ -6,6 +6,9 @@ CREATE TABLE IF NOT EXISTS recipes (
     -- Название без учёта регистра и лишних пробелов: «Борщ» и «борщ » — один рецепт.
     title_key   TEXT NOT NULL UNIQUE,
     author      TEXT,
+    photo       TEXT,            -- имя файла в data/photos
+    prep_minutes INTEGER,
+    servings    INTEGER,
     created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -30,3 +33,22 @@ CREATE TABLE IF NOT EXISTS steps (
     text        TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_steps_recipe ON steps (recipe_id, position);
+
+-- Категории: свободные метки, у рецепта их может быть несколько.
+CREATE TABLE IF NOT EXISTS tags (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    name_key    TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS recipe_tags (
+    recipe_id   INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+    tag_id      INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    PRIMARY KEY (recipe_id, tag_id)
+);
+
+-- Рецепты, отобранные для списка покупок. Хранятся в базе, чтобы выбор не терялся.
+CREATE TABLE IF NOT EXISTS shopping_recipes (
+    recipe_id   INTEGER PRIMARY KEY REFERENCES recipes(id) ON DELETE CASCADE,
+    added_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

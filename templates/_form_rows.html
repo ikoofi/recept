@@ -1,10 +1,11 @@
 {% macro ingredient_row(key, ing) %}
 <div class="row ingredient-row">
+  <button type="button" class="drag" title="Перетащите, чтобы изменить порядок" aria-label="Переместить ингредиент">⠿</button>
   <input type="hidden" name="ing_key" value="{{ key }}">
   <label class="main-radio" title="Главный ингредиент">
     <input type="radio" name="main" value="{{ key }}" {{ 'checked' if ing and ing.is_main }}><span>★</span>
   </label>
-  <input type="text" name="ing_name" placeholder="Ингредиент" value="{{ ing.name if ing else '' }}">
+  <input type="text" name="ing_name" placeholder="Ингредиент" list="ingredient-names" autocomplete="off" value="{{ ing.name if ing else '' }}">
   <input type="text" inputmode="decimal" name="ing_qty" class="qty-input" placeholder="Кол-во"
          value="{{ ing|qty_input if ing else '' }}">
   <select name="ing_unit">
@@ -18,6 +19,7 @@
 
 {% macro step_row(text) %}
 <li class="row step-row">
+  <button type="button" class="drag" title="Перетащите, чтобы изменить порядок" aria-label="Переместить шаг">⠿</button>
   <textarea name="step" rows="2" placeholder="Опишите шаг">{{ text }}</textarea>
   <button type="button" class="remove" title="Удалить">✕</button>
 </li>

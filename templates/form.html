@@ -4,7 +4,7 @@
 {% block content %}
 <h1>{{ 'Новый рецепт' if mode == 'new' else 'Редактирование рецепта' }}</h1>
 
-<form method="post" class="recipe-form">
+<form method="post" class="recipe-form" enctype="multipart/form-data">
   <label class="field">
     <span>Название</span>
     <input type="text" name="title" required maxlength="255" value="{{ recipe.title if recipe else '' }}">
@@ -15,8 +15,41 @@
     <input type="text" name="author" maxlength="255" value="{{ recipe.author or '' if recipe else '' }}">
   </label>
 
+  <div class="field-row">
+    <label class="field">
+      <span>Время приготовления, мин <span class="muted">(необязательно)</span></span>
+      <input type="text" inputmode="numeric" name="prep_minutes" value="{{ recipe.prep_minutes or '' if recipe else '' }}">
+    </label>
+    <label class="field">
+      <span>Порций <span class="muted">(необязательно)</span></span>
+      <input type="text" inputmode="numeric" name="servings" value="{{ recipe.servings or '' if recipe else '' }}">
+    </label>
+  </div>
+
+  <label class="field">
+    <span>Категории через запятую <span class="muted">(необязательно)</span></span>
+    <input type="text" name="tags" id="tags" autocomplete="off" placeholder="Например: супы, быстрое"
+           value="{{ recipe.tags|join(', ') if recipe else '' }}">
+  </label>
+  {% if all_tags %}
+    <div class="chips form-chips">
+      {% for t in all_tags %}<button type="button" class="chip" data-tag="{{ t.name }}">{{ t.name }}</button>{% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="field">
+    <span>Фото <span class="muted">(необязательно, JPG или PNG до 10 МБ)</span></span>
+    {% if recipe and recipe.photo %}
+      <div class="photo-edit">
+        <img src="{{ recipe|photo_url }}" alt="Текущее фото">
+        <label><input type="checkbox" name="photo_remove"> Удалить фото</label>
+      </div>
+    {% endif %}
+    <input type="file" name="photo" accept="image/jpeg,image/png">
+  </div>
+
   <h2>Ингредиенты</h2>
-  <p class="muted">Отметьте ★ главный ингредиент. Для «по вкусу» количество не нужно.</p>
+  <p class="muted">Отметьте ★ главный ингредиент. Для «по вкусу» количество не нужно. Порядок можно менять, перетаскивая за ⠿.</p>
   <div id="ingredients">
     {% set ings = recipe.ingredients if recipe else [] %}
     {% for ing in ings %}
@@ -43,6 +76,10 @@
     <a class="btn secondary" href="{{ url_for('recipe_view', recipe_id=recipe.id) if mode == 'edit' else url_for('index') }}">Отмена</a>
   </div>
 </form>
+
+<datalist id="ingredient-names">
+  {% for name in ingredient_names %}<option value="{{ name }}"></option>{% endfor %}
+</datalist>
 
 <template id="ingredient-tpl">{{ ingredient_row('__KEY__', none) }}</template>
 <template id="step-tpl">{{ step_row('') }}</template>
@@ -82,6 +119,55 @@
     const row = btn.closest('.row');
     if (row.parentElement.children.length > 1) row.remove();
   });
+  // Перетаскивание указателем работает и мышью, и пальцем. Двигаем соседние строки, а не
+  // саму строку: иначе браузер прервёт перетаскивание при её удалении из документа.
+  function enableDrag(box) {
+    box.addEventListener('pointerdown', (e) => {
+      const handle = e.target.closest('.drag');
+      if (!handle) return;
+      e.preventDefault();
+      const row = handle.closest('.row');
+      row.classList.add('dragging');
+      handle.setPointerCapture(e.pointerId);
+      const mid = (el) => { const r = el.getBoundingClientRect(); return r.top + r.height / 2; };
+      const onMove = (ev) => {
+        let prev, next;
+        while ((prev = row.previousElementSibling) && ev.clientY < mid(prev)) row.after(prev);
+        while ((next = row.nextElementSibling) && ev.clientY > mid(next)) row.before(next);
+      };
+      const onEnd = () => {
+        row.classList.remove('dragging');
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onEnd);
+        handle.removeEventListener('pointercancel', onEnd);
+      };
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onEnd);
+      handle.addEventListener('pointercancel', onEnd);
+    });
+    box.addEventListener('keydown', (e) => {
+      const handle = e.target.closest('.drag');
+      if (!handle || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+      e.preventDefault();
+      const row = handle.closest('.row');
+      if (e.key === 'ArrowUp' && row.previousElementSibling) row.after(row.previousElementSibling);
+      if (e.key === 'ArrowDown' && row.nextElementSibling) row.before(row.nextElementSibling);
+    });
+  }
+  enableDrag(ingBox);
+  enableDrag(stepBox);
+
+  // Щелчок по готовой категории добавляет её в поле.
+  const tagsInput = document.getElementById('tags');
+  document.querySelectorAll('.form-chips .chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const tags = tagsInput.value.split(',').map((t) => t.trim()).filter(Boolean);
+      const lower = tags.map((t) => t.toLowerCase());
+      if (!lower.includes(chip.dataset.tag.toLowerCase())) tags.push(chip.dataset.tag);
+      tagsInput.value = tags.join(', ');
+    });
+  });
+
   ingBox.addEventListener('change', (e) => {
     if (e.target.tagName === 'SELECT') syncQty(e.target.closest('.row'));
   });

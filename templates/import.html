@@ -2,13 +2,57 @@
 {% block title %}Импорт рецептов{% endblock %}
 {% block content %}
 <h1>Импорт рецептов</h1>
-<p class="muted">Выберите файл .json, выгруженный из такой же книги рецептов.
-  Рецепты с названием, которое уже есть в книге, не добавляются.</p>
 
-<form method="post" enctype="multipart/form-data" class="import-form">
-  <input type="file" name="file" accept=".json,application/json" required>
-  <button class="btn">Загрузить</button>
-</form>
+{% if conflicts %}
+  <p>В файле есть рецепты с названиями, которые уже встречаются в книге. Выберите, что с ними сделать.
+    {% if new_count %}Новых рецептов в файле: {{ new_count }}, они добавятся в любом случае.{% endif %}</p>
+
+  <form method="post" action="{{ url_for('import_apply') }}" class="conflicts">
+    <input type="hidden" name="token" value="{{ token }}">
+    <div class="conflict-all">
+      <span class="muted">Для всех:</span>
+      <button type="button" class="chip" data-all="skip">Пропустить</button>
+      <button type="button" class="chip" data-all="replace">Заменить</button>
+      <button type="button" class="chip" data-all="copy">Сохранить копию</button>
+    </div>
+    <ul class="conflict-list">
+      {% for c in conflicts %}
+        <li>
+          <div>
+            <strong>{{ c.title }}</strong>
+            {% if c.author %}<span class="muted">· в файле: {{ c.author }}</span>{% endif %}
+            {% if c.existing and c.existing.author %}<span class="muted">· в книге: {{ c.existing.author }}</span>{% endif %}
+          </div>
+          <div class="conflict-choices">
+            <label><input type="radio" name="choice_{{ c.index }}" value="skip" checked> Пропустить</label>
+            <label><input type="radio" name="choice_{{ c.index }}" value="replace"> Заменить</label>
+            <label><input type="radio" name="choice_{{ c.index }}" value="copy"> Сохранить копию</label>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+    <div class="form-actions">
+      <button class="btn">Продолжить импорт</button>
+      <a class="btn secondary" href="{{ url_for('import_recipes') }}">Отмена</a>
+    </div>
+  </form>
+  <script>
+    document.querySelectorAll('[data-all]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.conflict-choices input[value="' + btn.dataset.all + '"]')
+          .forEach((radio) => { radio.checked = true; });
+      });
+    });
+  </script>
+{% else %}
+  <p class="muted">Выберите файл .json, выгруженный из такой же книги рецептов.
+    Если название рецепта уже есть в книге, программа спросит, что сделать.</p>
+
+  <form method="post" enctype="multipart/form-data" class="import-form">
+    <input type="file" name="file" accept=".json,application/json" required>
+    <button class="btn">Загрузить</button>
+  </form>
+{% endif %}
 
 {% if result %}
   <div class="import-result">
@@ -17,8 +61,18 @@
       <ul>{% for t in result.added %}<li>{{ t }}</li>{% endfor %}</ul>
     {% endif %}
 
+    {% if result.replaced %}
+      <h2>Заменено: {{ result.replaced|length }}</h2>
+      <ul>{% for t in result.replaced %}<li>{{ t }}</li>{% endfor %}</ul>
+    {% endif %}
+
+    {% if result.copied %}
+      <h2>Сохранено как копия: {{ result.copied|length }}</h2>
+      <ul>{% for t in result.copied %}<li>{{ t }}</li>{% endfor %}</ul>
+    {% endif %}
+
     {% if result.skipped %}
-      <h2>Пропущено — уже есть в книге: {{ result.skipped|length }}</h2>
+      <h2>Пропущено: {{ result.skipped|length }}</h2>
       <ul>{% for t in result.skipped %}<li>{{ t }}</li>{% endfor %}</ul>
     {% endif %}
 

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120" role="img" aria-label="Нет фото">
+  <rect width="160" height="120" fill="#f1ede8"/>
+  <circle cx="80" cy="60" r="32" fill="#fff" stroke="#d8cfc5" stroke-width="3"/>
+  <circle cx="80" cy="60" r="20" fill="none" stroke="#e6dfd6" stroke-width="3"/>
+  <path d="M30 34v18a8 8 0 0 0 6 7.7V88M30 34m6 0v18M42 34v18a8 8 0 0 1-6 7.7" fill="none" stroke="#d8cfc5" stroke-width="3" stroke-linecap="round"/>
+  <path d="M126 34c-6 3-8 12-8 24h8v30" fill="none" stroke="#d8cfc5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

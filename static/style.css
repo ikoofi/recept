@@ -155,3 +155,117 @@ input[readonly] { background: #f1ede8; }
 @media (max-width: 560px) {
   .topbar { flex-wrap: wrap; }
 }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 16px; }
+.chip {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: .9rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+.chip:hover { border-color: var(--accent); }
+.chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.recipe-list li { justify-content: flex-start; }
+.thumb { flex: none; display: block; }
+.thumb img { display: block; width: 72px; height: 54px; object-fit: cover; border-radius: 6px; }
+.recipe-info { min-width: 0; flex: 1; }
+.recipe-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; font-size: .9rem; }
+.recipe-photo {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+.recipe-meta { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 12px; }
+
+.field-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.field-row .field { flex: 1 1 200px; }
+.photo-edit { display: flex; align-items: center; gap: 12px; margin: 4px 0 8px; }
+.photo-edit img { width: 120px; height: 90px; object-fit: cover; border-radius: 6px; }
+.recipe-form input[type=file] { max-width: 100%; }
+
+.drag {
+  flex: none;
+  padding: 4px 2px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: grab;
+  touch-action: none;
+}
+.drag:hover { color: var(--accent); }
+.dragging { opacity: .6; }
+.dragging .drag { cursor: grabbing; }
+
+.selected-recipes { list-style: none; padding: 0; margin: 0 0 12px; }
+.selected-recipes li,
+.found-recipes li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.selected-recipes form,
+.found-recipes form { margin: 0; flex: none; }
+.found-recipes { list-style: none; padding: 0; margin: 0; max-height: 320px; overflow-y: auto; }
+.shopping .search { margin: 0 0 8px; }
+.shopping-list { list-style: none; padding: 0; margin: 20px 0 0; }
+.shopping-list li { border-bottom: 1px dashed var(--border); }
+.shopping-list label { display: flex; align-items: center; gap: 10px; padding: 8px 4px; cursor: pointer; }
+.item-name { flex: 1; min-width: 0; }
+.item-amount { text-align: right; font-weight: 600; }
+.shopping-list input:checked ~ span { text-decoration: line-through; color: var(--muted); }
+
+.conflict-all { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; }
+.conflict-list { list-style: none; padding: 0; margin: 0; }
+.conflict-list li {
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.conflict-choices { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 6px; }
+
+body.cook { font-size: 1.25rem; }
+.cook-bar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+.cook-bar .muted { font-size: .9rem; }
+.cook-main { max-width: 860px; margin: 0 auto; padding: 16px; }
+.cook-main h1 { font-size: 2rem; }
+.cook-main h2 { font-size: 1.5rem; }
+.cook-list { list-style: none; padding: 0; margin: 0; }
+.cook-steps { counter-reset: step; }
+.cook-list li { border-bottom: 1px solid var(--border); }
+.cook-list label { display: flex; align-items: flex-start; gap: 14px; padding: 14px 4px; cursor: pointer; }
+.cook-list input { flex: none; width: 26px; height: 26px; margin-top: 4px; }
+.cook-steps span::before { counter-increment: step; content: counter(step) ". "; font-weight: 700; color: var(--accent); }
+.cook-list input:checked + span { color: var(--muted); text-decoration: line-through; }
+
+@media print {
+  .topbar, .no-print, .flash { display: none; }
+  body { background: #fff; }
+  .recipe { border: none; padding: 0; }
+}

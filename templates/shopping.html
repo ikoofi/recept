@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Список покупок{% endblock %}
+{% block content %}
+<article class="recipe shopping">
+  <h1>Список покупок</h1>
+
+  {% if selected %}
+    <h2>Выбранные рецепты: {{ selected|length }}</h2>
+    <ul class="selected-recipes">
+      {% for r in selected %}
+        <li>
+          <a href="{{ url_for('recipe_view', recipe_id=r.id) }}">{{ r.title }}</a>
+          <form method="post" action="{{ url_for('shopping_remove') }}" class="no-print">
+            <input type="hidden" name="recipe_id" value="{{ r.id }}">
+            <input type="hidden" name="q" value="{{ q }}">
+            <button class="remove" title="Убрать из списка" aria-label="Убрать «{{ r.title }}» из списка">✕</button>
+          </form>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">Пока ничего не выбрано. Найдите рецепт ниже и нажмите «Добавить».</p>
+  {% endif %}
+
+  <div class="no-print">
+    <h2>Добавить рецепт</h2>
+    <form class="search" method="get">
+      <input type="search" name="q" value="{{ q }}" placeholder="Поиск по названию, автору или главному ингредиенту">
+      <button class="btn secondary">Найти</button>
+      {% if q %}<a class="btn secondary" href="{{ url_for('shopping') }}">Сбросить</a>{% endif %}
+    </form>
+    {% if found %}
+      <ul class="found-recipes">
+        {% for r in found %}
+          <li>
+            <span>
+              {{ r.title }}
+              {% if r.main_ingredient %}<span class="tag">{{ r.main_ingredient }}</span>{% endif %}
+            </span>
+            <form method="post" action="{{ url_for('shopping_add') }}">
+              <input type="hidden" name="recipe_id" value="{{ r.id }}">
+              <input type="hidden" name="q" value="{{ q }}">
+              <button class="btn secondary">+ Добавить</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% elif q %}
+      <p class="muted">Ничего не найдено.</p>
+    {% else %}
+      <p class="muted">Все рецепты уже в списке.</p>
+    {% endif %}
+  </div>
+
+  {% if items %}
+    <h2>Что купить</h2>
+    <div class="actions no-print">
+      <button class="btn" type="button" onclick="window.print()">🖨 Печать</button>
+      <a class="btn secondary" href="{{ url_for('shopping_docx') }}">Скачать DOCX</a>
+      <form method="post" action="{{ url_for('shopping_clear') }}"
+            onsubmit="return confirm('Очистить список покупок? Сами рецепты останутся в книге.')">
+        <input type="hidden" name="q" value="{{ q }}">
+        <button class="btn danger">Очистить список</button>
+      </form>
+    </div>
+    <ul class="shopping-list">
+      {% for item in items %}
+        <li>
+          <label>
+            <input type="checkbox">
+            <span class="item-name">{{ item.name }}</span>
+            <span class="item-amount">{{ item.amount }}</span>
+          </label>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+</article>
+{% endblock %}

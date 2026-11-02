@@ -2,14 +2,32 @@
 {% block title %}{{ recipe.title }}{% endblock %}
 {% block content %}
 <article class="recipe">
+  <img class="recipe-photo" src="{{ recipe|photo_url }}" alt="{{ 'Фото блюда' if recipe.photo else 'Нет фото' }}">
   <h1>{{ recipe.title }}</h1>
   {% if recipe.author %}<p class="author">Автор: {{ recipe.author }}</p>{% endif %}
   {% if recipe.main %}
     <p class="main-ing">Главный ингредиент: <strong>{{ recipe.main.name }}</strong></p>
   {% endif %}
+  {% if recipe.servings or recipe.prep_minutes %}
+    <p class="recipe-meta">
+      {% if recipe.servings %}<span>Порций: <strong>{{ recipe.servings|number }}</strong></span>{% endif %}
+      {% if recipe.prep_minutes %}<span>Время: <strong>{{ recipe.prep_minutes|minutes }}</strong></span>{% endif %}
+    </p>
+  {% endif %}
+  {% if recipe.tags %}
+    <div class="chips">
+      {% for t in recipe.tags %}<a class="chip" href="{{ url_for('index', tag=t.casefold()) }}">{{ t }}</a>{% endfor %}
+    </div>
+  {% endif %}
 
   <div class="actions">
     <a class="btn" href="{{ url_for('recipe_docx', recipe_id=recipe.id, by=recipe.scale_base.id, qty=request.args.get('qty')) if recipe.scaled else url_for('recipe_docx', recipe_id=recipe.id) }}">🖨 Скачать DOCX для печати</a>
+    <a class="btn secondary" href="{{ url_for('recipe_cook', recipe_id=recipe.id, **request.args.to_dict()) }}">👩‍🍳 Режим готовки</a>
+    <form method="post" action="{{ url_for('shopping_remove' if in_shopping else 'shopping_add') }}">
+      <input type="hidden" name="recipe_id" value="{{ recipe.id }}">
+      <input type="hidden" name="back_recipe" value="{{ recipe.id }}">
+      <button class="btn secondary">{{ '✓ В покупках — убрать' if in_shopping else '🛒 В список покупок' }}</button>
+    </form>
     <a class="btn secondary" href="{{ url_for('recipe_export', recipe_id=recipe.id) }}" title="Файл для передачи рецепта">Экспорт</a>
     <a class="btn secondary" href="{{ url_for('recipe_edit', recipe_id=recipe.id) }}">Редактировать</a>
     <form method="post" action="{{ url_for('recipe_delete', recipe_id=recipe.id) }}"
@@ -24,11 +42,11 @@
       <label for="scale-qty">Рассчитать на</label>
       <input type="text" inputmode="decimal" id="scale-qty" name="qty" required
              value="{{ recipe.scale_base|qty_input|replace('.', ',') }}">
-      <select name="by" id="scale-by" aria-label="Ингредиент, по которому идёт расчёт">
+      <select name="by" id="scale-by" aria-label="По чему идёт расчёт">
         {% for ing in recipe.scale_options %}
           <option value="{{ ing.id }}" data-qty="{{ ing|qty_input|replace('.', ',') }}"
                   {{ 'selected' if ing.id == recipe.scale_base.id }}>
-            {{ units[ing.unit] }} — {{ ing.name }}{{ ' ★' if ing.is_main }}
+            {{ units.get(ing.unit, 'порц.') }} — {{ ing.name }}{{ ' ★' if ing.is_main }}
           </option>
         {% endfor %}
       </select>

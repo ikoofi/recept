@@ -1,23 +1,41 @@
 {% extends "base.html" %}
 {% block content %}
 <form class="search" method="get">
+  {% if tag %}<input type="hidden" name="tag" value="{{ tag }}">{% endif %}
   <input type="search" name="q" value="{{ q }}" placeholder="Поиск по названию, автору или главному ингредиенту">
   <button class="btn secondary">Найти</button>
 </form>
+
+{% if all_tags %}
+  <div class="chips tag-filter">
+    <a class="chip {{ 'active' if not tag }}" href="{{ url_for('index', q=q or none) }}">Все</a>
+    {% for t in all_tags %}
+      <a class="chip {{ 'active' if t.name_key == tag }}" href="{{ url_for('index', q=q or none, tag=t.name_key) }}">{{ t.name }}</a>
+    {% endfor %}
+  </div>
+{% endif %}
 
 {% if recipes %}
   <ul class="recipe-list">
     {% for r in recipes %}
       <li>
-        <span>
+        <a class="thumb" href="{{ url_for('recipe_view', recipe_id=r.id) }}" tabindex="-1" aria-hidden="true">
+          <img src="{{ r|photo_url }}" alt="">
+        </a>
+        <div class="recipe-info">
           <a href="{{ url_for('recipe_view', recipe_id=r.id) }}">{{ r.title }}</a>
           {% if r.author %}<span class="muted">· {{ r.author }}</span>{% endif %}
-        </span>
-        {% if r.main_ingredient %}<span class="tag">{{ r.main_ingredient }}</span>{% endif %}
+          <div class="recipe-sub">
+            {% if r.main_ingredient %}<span class="tag">{{ r.main_ingredient }}</span>{% endif %}
+            {% for t in r.tags %}<span class="tag">{{ t }}</span>{% endfor %}
+            {% if r.servings %}<span class="muted">{{ r.servings }} порц.</span>{% endif %}
+            {% if r.prep_minutes %}<span class="muted">{{ r.prep_minutes|minutes }}</span>{% endif %}
+          </div>
+        </div>
       </li>
     {% endfor %}
   </ul>
-{% elif q %}
+{% elif q or tag %}
   <p class="muted">Ничего не найдено.</p>
 {% else %}
   <p class="muted">Рецептов пока нет. <a href="{{ url_for('recipe_new') }}">Добавьте первый</a>.</p>
